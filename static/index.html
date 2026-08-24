@@ -32,11 +32,17 @@
   #result { margin-top:12px; width:100%; min-height:200px; white-space:pre-wrap; font-size:13px; line-height:1.8; }
   .meta { font-size:13px; color:var(--muted); margin-bottom:8px; }
   .actions { display:flex; gap:10px; margin-top:10px; }
-  .login-status { display:inline-flex; align-items:center; gap:6px; font-size:13px; padding:5px 12px; border-radius:20px; background:#eef0f3; }
-  .login-status.on { background:#dcfce7; color:#16a34a; }
-  .login-status.off { background:#fee2e2; color:#dc2626; }
   .spinner { display:inline-block; width:14px; height:14px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin .8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
+  .prog-bar { height:8px; background:#eef0f3; border-radius:4px; overflow:hidden; margin-top:12px; }
+  .prog-fill { height:100%; width:0; background:var(--primary); border-radius:4px; transition:width .25s ease; }
+  .prog-fill.indet { width:35%; animation:indet 1.2s ease-in-out infinite; }
+  @keyframes indet { 0% { margin-left:-35%; } 100% { margin-left:100%; } }
+  .prov { border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:10px; }
+  .prov-head { font-size:14px; margin-bottom:4px; display:flex; align-items:center; gap:8px; }
+  .tag.free { background:#dcfce7; color:#16a34a; }
+  .prov-detail, .prov-note { font-size:12px; color:var(--muted); margin-bottom:4px; line-height:1.6; }
+  .btn-sm { padding:5px 12px; font-size:13px; margin-top:6px; }
 </style>
 </head>
 <body>
@@ -75,16 +81,33 @@
     <div class="status" id="cfg_status"></div>
   </div>
 
-  <!-- 登录 -->
+  <!-- Whisper API 推荐 -->
   <div class="card">
-    <h2>抖音登录 <span class="tag">仅私密视频需要</span></h2>
-    <div class="login-status off" id="login_badge">未登录</div>
-    <p class="status">公开视频无需登录即可转写。若目标视频需要登录：点击下方按钮会打开一个可见的浏览器窗口，在其中完成扫码/账号登录，登录凭证将自动保存用于后续转写。</p>
-    <div class="actions">
-      <button class="btn btn-ghost" id="login_start">打开登录窗口</button>
-      <button class="btn btn-ghost" id="login_logout">清除登录凭证</button>
+    <h2>免费 Whisper API 推荐 <span class="tag">点「填入」自动配置</span></h2>
+    <div class="prov" data-base="https://api.groq.com/openai/v1" data-model="whisper-large-v3-turbo">
+      <div class="prov-head"><b>Groq</b> <span class="tag free">免费 · 无需绑卡</span></div>
+      <div class="prov-detail">接口: https://api.groq.com/openai/v1 · 模型: whisper-large-v3-turbo（或 whisper-large-v3）</div>
+      <div class="prov-note">免费额度: 每天 2000 次语音转写，速度快（约 200 倍实时）。到 console.groq.com/keys 注册拿 Key。</div>
+      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
     </div>
-    <div class="status" id="login_status"></div>
+    <div class="prov" data-base="https://api.siliconflow.cn/v1" data-model="FunAudioLLM/SenseVoiceSmall">
+      <div class="prov-head"><b>硅基流动 SiliconFlow</b> <span class="tag free">免费模型 · 注册送 14 元</span></div>
+      <div class="prov-detail">接口: https://api.siliconflow.cn/v1 · 模型: FunAudioLLM/SenseVoiceSmall（免费 ASR）</div>
+      <div class="prov-note">国内直连，注册即送 14 元余额；另有付费 Whisper 模型可选，模型名在模型广场查看。</div>
+      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
+    </div>
+    <div class="prov" data-base="https://api.deepinfra.com/v1/openai" data-model="openai/whisper-large-v3">
+      <div class="prov-head"><b>DeepInfra</b> <span class="tag">低价备选</span></div>
+      <div class="prov-detail">接口: https://api.deepinfra.com/v1/openai · 模型: openai/whisper-large-v3</div>
+      <div class="prov-note">约 $0.00045/分钟，几乎全网最低价；无免费额度，适合低频使用。</div>
+      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
+    </div>
+    <div class="prov" data-base="https://api.openai.com/v1" data-model="whisper-1">
+      <div class="prov-head"><b>OpenAI 官方</b> <span class="tag">付费基准</span></div>
+      <div class="prov-detail">接口: https://api.openai.com/v1 · 模型: whisper-1</div>
+      <div class="prov-note">$0.006/分钟（约 $0.36/小时），无免费额度，作为准确度基准参考。</div>
+      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
+    </div>
   </div>
 
   <!-- 转写 -->
@@ -110,6 +133,7 @@
       </div>
     </div>
     <button class="btn btn-primary btn-block" id="transcribe">开始转写</button>
+    <div class="prog-bar" id="prog_wrap" hidden><div class="prog-fill" id="prog_fill"></div></div>
     <div class="status" id="progress"></div>
     <div class="meta" id="result_meta"></div>
     <textarea id="result" placeholder="转写结果将显示在这里…"></textarea>
@@ -156,69 +180,106 @@ $("save_cfg").onclick = async () => {
   setTimeout(() => $("cfg_status").innerHTML = "", 3000);
 };
 
-// ── 登录 ──
-async function refreshLoginBadge() {
-  const r = await api("/api/login/status_all");
-  const badge = $("login_badge");
-  badge.textContent = r.logged_in ? "已登录（凭证已保存）" : "未登录";
-  badge.className = "login-status " + (r.logged_in ? "on" : "off");
+document.querySelectorAll(".prov-fill").forEach(btn => {
+  btn.onclick = () => {
+    const p = btn.closest(".prov");
+    $("base_url").value = p.dataset.base;
+    $("model").value = p.dataset.model;
+    $("cfg_status").innerHTML = '<span class="warn">已填入接口地址和模型，粘贴 API Key 后点保存</span>';
+  };
+});
+
+// ── 转写（SSE 流式，含下载进度）──
+function setProgress(pct, indeterminate) {
+  const fill = $("prog_fill");
+  $("prog_wrap").hidden = false;
+  fill.classList.toggle("indet", !!indeterminate);
+  if (indeterminate) fill.style.width = "";
+  else fill.style.width = Math.max(2, Math.min(100, pct)) + "%";
 }
 
-$("login_start").onclick = async () => {
-  const r = await api("/api/login/start", { method: "POST" });
-  $("login_status").innerHTML = r.hint;
-  const poll = setInterval(async () => {
-    const s = await api("/api/login/status?sid=" + r.sid);
-    if (s.status === "done") {
-      clearInterval(poll);
-      $("login_status").innerHTML = '<span class="ok">登录成功，凭证已保存，可直接转写私密视频</span>';
-      refreshLoginBadge();
-    } else if (s.status === "error") {
-      clearInterval(poll);
-      $("login_status").innerHTML = '<span class="err">登录失败: ' + s.error + '</span>';
-    }
-  }, 2000);
-};
+function transcribeFail(msg) {
+  $("prog_fill").classList.remove("indet");
+  $("prog_wrap").hidden = true;
+  $("progress").innerHTML = '<span class="err">' + msg + '</span>';
+}
 
-$("login_logout").onclick = async () => {
-  await api("/api/login/logout", { method: "POST" });
-  $("login_status").innerHTML = "已清除登录凭证";
-  refreshLoginBadge();
-};
+function handleTranscribeEvent(evt, data) {
+  if (evt === "stage") {
+    setProgress(null, true);
+    $("progress").innerHTML = '<span class="warn">' + data.message + '</span>';
+  } else if (evt === "progress") {
+    const pct = data.total ? data.done / data.total * 100 : null;
+    setProgress(pct, pct === null);
+    const shown = pct !== null ? pct.toFixed(0) + "%" : Math.round(data.done / 1048576) + " MB";
+    $("progress").innerHTML = '<span class="warn">下载视频中 ' + shown + '…</span>';
+  } else if (evt === "done") {
+    setProgress(100, false);
+    $("progress").innerHTML = '<span class="ok">完成</span>';
+    const m = data.meta;
+    $("result_meta").textContent =
+      `标题: ${m.title} | 作者: ${m.author} | 时长: ${m.duration}秒 | 模式: ${data.mode === "local" ? "本地" : "远程"} | 模型: ${data.model}`;
+    currentResult = data.result;
+    currentFormat = data.format;
+    $("result").value = data.result;
+  } else if (evt === "error") {
+    transcribeFail(data.message || "未知错误");
+  }
+}
 
-// ── 转写 ──
 $("transcribe").onclick = async () => {
   const btn = $("transcribe");
   const url = $("url").value.trim();
   if (!url) { $("progress").innerHTML = '<span class="err">请输入抖音链接</span>'; return; }
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> 处理中…';
-  $("progress").innerHTML = '<span class="warn">下载视频并提取音频中（长视频可能需要几分钟）…</span>';
+  $("progress").textContent = "";
   $("result").value = ""; $("result_meta").textContent = "";
+  setProgress(0, false);
 
-  const r = await api("/api/transcribe", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      url,
-      mode: $("mode").value,
-      output_format: $("output_format").value,
-    }),
-  });
-
-  btn.disabled = false;
-  btn.textContent = "开始转写";
-  if (r.error) {
-    $("progress").innerHTML = '<span class="err">' + r.error + '</span>';
+  let resp;
+  try {
+    resp = await fetch("/api/transcribe/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        mode: $("mode").value,
+        output_format: $("output_format").value,
+      }),
+    });
+  } catch (e) {
+    transcribeFail("请求失败: " + e.message);
+    btn.disabled = false; btn.textContent = "开始转写";
     return;
   }
-  $("progress").innerHTML = '<span class="ok">完成</span>';
-  const m = r.meta;
-  $("result_meta").textContent =
-    `标题: ${m.title} | 作者: ${m.author} | 时长: ${m.duration}秒 | 模式: ${r.mode === "local" ? "本地" : "远程"} | 模型: ${r.model}`;
-  currentResult = r.result;
-  currentFormat = r.format;
-  $("result").value = r.result;
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "", gotDone = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const evt = (raw.match(/^event: (.+)$/m) || [])[1];
+        const data = (raw.match(/^data: (.+)$/m) || [])[1];
+        if (!data) continue;
+        handleTranscribeEvent(evt, JSON.parse(data));
+        if (evt === "done") gotDone = true;
+      }
+    }
+  } catch (e) {
+    transcribeFail("连接中断: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "开始转写";
+  }
+  if (!gotDone && !$("prog_wrap").hidden) transcribeFail("服务未返回结果");
 };
 
 $("copy").onclick = () => {
@@ -238,7 +299,6 @@ $("download").onclick = () => {
 };
 
 loadConfig();
-refreshLoginBadge();
 </script>
 </body>
 </html>

@@ -6,21 +6,20 @@
 功能:
   - 配置远程大模型 API Key / API 地址 / 模型名
   - 链接语音转文字: 本地 whisper.cpp 或 远程 OpenAI 兼容 Whisper API
-  - 需要登录的视频: 打开浏览器手动登录，捕获凭证后自动携带
 """
 
 import json
+import queue
 import shutil
-import uuid
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import douyin
-import login
 import transcribe
 
 app = FastAPI(title="Douyin Transcriber")
@@ -103,69 +102,101 @@ def update_config(update: ConfigUpdate):
     return {"ok": True}
 
 
-@app.post("/api/transcribe")
-def do_transcribe(req: TranscribeRequest):
+def _run_transcribe(req: TranscribeRequest, emit) -> None:
+    """执行完整转写链路，通过 emit(event, payload) 汇报进度与结果。
+
+    event: stage（阶段提示）| progress（下载进度）| done | error
+    """
     if not req.url.strip():
-        return {"error": "请输入抖音链接"}
+        emit("error", {"message": "请输入抖音链接"})
+        return
 
-    # 1. 下载音频
-    try:
-        audio_path, meta, tmpdir = douyin.extract_audio_from_link(req.url.strip())
-    except douyin.DouyinError as e:
-        return {"error": f"下载失败: {e}"}
-
-    # 2. 转写
     cfg = load_config()
     output_format = req.output_format or cfg.get("format", "text")
+
+    # 1. 下载音频（带进度回调）
+    emit("stage", {"message": "解析链接、获取视频信息…"})
+    try:
+        audio_path, meta, tmpdir = douyin.extract_audio_from_link(
+            req.url.strip(),
+            progress_cb=lambda done, total: emit("progress", {"done": done, "total": total}))
+    except douyin.DouyinError as e:
+        emit("error", {"message": f"下载失败: {e}"})
+        return
+    except Exception as e:
+        emit("error", {"message": f"下载失败: {e}"})
+        return
+    emit("stage", {"message": "视频下载完成，提取音频…"})
+
+    # 2. 转写
     try:
         if req.mode == "remote":
             model = req.model or cfg.get("model") or "whisper-1"
+            emit("stage", {"message": f"调用远程 API 转写中（{model}）…"})
             result = transcribe.transcribe_remote(
                 audio_path, cfg.get("api_key", ""), cfg.get("base_url", ""),
                 model, output_format)
         else:
             model = req.model or cfg.get("local_model") or "small"
+            emit("stage", {"message": f"本地模型转写中（{model}）…"})
             result = transcribe.transcribe_local(audio_path, model, output_format)
     except douyin.DouyinError as e:
-        return {"error": f"转写失败: {e}"}
+        emit("error", {"message": f"转写失败: {e}"})
+        return
     except Exception as e:
-        return {"error": f"转写失败: {e}"}
+        emit("error", {"message": f"转写失败: {e}"})
+        return
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
-    return {
+    emit("done", {
         "ok": True,
         "meta": meta,
         "result": result,
         "mode": req.mode,
         "model": model,
         "format": output_format,
-    }
+    })
 
 
-@app.post("/api/login/start")
-def login_start():
-    sid = uuid.uuid4().hex[:8]
-    session = login.start_login(sid)
-    return {"sid": session.sid, "status": session.status,
-            "hint": "已打开浏览器，请在窗口中完成抖音登录（扫码或账号密码）"}
+@app.post("/api/transcribe")
+def do_transcribe(req: TranscribeRequest):
+    """同步版（兼容旧调用），内部复用流式链路。"""
+    result = {}
+
+    def emit(event, payload):
+        if event == "done":
+            result.update(payload)
+        elif event == "error":
+            result["error"] = payload["message"]
+
+    _run_transcribe(req, emit)
+    return result
 
 
-@app.get("/api/login/status")
-def login_status(sid: str):
-    session = login.get_session(sid)
-    return session.to_dict()
+@app.post("/api/transcribe/stream")
+def transcribe_stream(req: TranscribeRequest):
+    """SSE 流式转写，事件: stage / progress / done / error。"""
+    def event_source():
+        q: queue.Queue = queue.Queue()
 
+        def run():
+            try:
+                _run_transcribe(req, lambda event, payload: q.put((event, payload)))
+            except Exception as e:
+                q.put(("error", {"message": f"服务异常: {e}"}))
+            finally:
+                q.put(None)
 
-@app.get("/api/login/status_all")
-def login_status_all():
-    return {"logged_in": login._login_available()}
+        threading.Thread(target=run, daemon=True).start()
+        while True:
+            item = q.get()
+            if item is None:
+                break
+            event, payload = item
+            yield f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-
-@app.post("/api/login/logout")
-def login_logout():
-    login.logout()
-    return {"ok": True}
+    return StreamingResponse(event_source(), media_type="text/event-stream")
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

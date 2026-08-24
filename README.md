@@ -7,15 +7,13 @@
 - **可配置远程大模型**：API Key、API 地址（OpenAI 兼容）、模型名称，Web 界面保存到本地
 - **本地识别**：whisper.cpp（`whisper-cli`，brew 安装，首次自动下载模型）
 - **远程识别**：任意 OpenAI 兼容 Whisper API（OpenAI / Groq / 中转站等）
-- **免登录下载**：公开视频通过 ttwid 匿名 cookie + detail API 直接下载，无需登录
-- **手动登录**：私密/需登录视频，打开可见浏览器窗口扫码登录，自动捕获凭证用于转写
+- **免登录下载**：视频通过 ttwid 匿名 cookie + detail API 直接下载，无需登录
 - **多输出格式**：纯文字 / SRT 字幕 / JSON（含时间戳）
 
 ## 启动
 
 ```bash
 pip install -r requirements.txt
-playwright install chromium   # 仅登录功能需要
 uvicorn app:app --port 8000
 ```
 
@@ -27,12 +25,9 @@ uvicorn app:app --port 8000
 
 1. **配置页**：填写远程识别用的 API Key / 地址 / 模型名（本地识别可忽略），保存
 2. **转写**：粘贴抖音链接，选择「本地识别」或「远程识别」和输出格式，点开始
-3. **登录**（仅私密视频）：点「打开登录窗口」，在弹出浏览器中完成扫码/账号登录，
-   凭证自动保存。此后转写私密视频无需再操作
 
 ## 说明
 
 - 首次本地识别会自动下载 whisper 模型（small 约 460MB）到 `~/.dyt/models/`
 - 远程音频超过 24MB 会自动压缩
-- 配置和登录凭证保存在 `data/` 目录（本地明文，注意保密）
-- 登录凭证仅保存在本机，用于向抖音接口发请求，不上传任何第三方
+- 配置保存在 `data/` 目录（本地明文，注意保密）

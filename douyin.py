@@ -5,20 +5,17 @@
   2. 程序化注册 ttwid 匿名 cookie（公开视频无需登录）
   3. 调用 aweme/v1/web/aweme/detail/ 接口获取 play_addr CDN 直链
   4. 下载视频 -> ffmpeg 提取音频
-需要登录的视频: 通过 login.py 的 Playwright 手动登录捕获 cookies，
-下载时带上 login cookies 即可（sessionid 等）。
 """
 
-import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
 import time
-from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -27,7 +24,6 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
 TTWID_REGISTER_URL = "https://ttwid.bytedance.com/ttwid/union/register/"
 DETAIL_API = "https://www.douyin.com/aweme/v1/web/aweme/detail/"
 
-COOKIE_FILE = Path(__file__).parent / "data" / "douyin_cookies.txt"
 TTWID_FILE = Path(__file__).parent / "data" / "ttwid.txt"
 
 
@@ -105,7 +101,6 @@ def resolve_video_id(url_or_text: str) -> str:
     mm = _VIDEO_ID_RE.search(parsed)
     if mm:
         return mm.group(1)
-    from urllib.parse import urlparse, parse_qs
     modal = parse_qs(urlparse(url).query).get("modal_id")
     if modal:
         return modal[0]
@@ -114,25 +109,8 @@ def resolve_video_id(url_or_text: str) -> str:
 
 # ── 视频信息 / 下载 ───────────────────────────────────
 
-def load_login_cookies() -> list:
-    """读取手动登录保存的 cookies（Playwright 格式 dict 列表）。"""
-    path = Path(__file__).parent / "data" / "login_cookies.json"
-    if not path.exists():
-        return []
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-
-
 def fetch_detail(video_id: str) -> dict:
-    """获取视频详情（含 play_addr）。优先带登录 cookies，失败退回匿名。"""
-    login_cookies = load_login_cookies()
-    if login_cookies:
-        detail = _fetch_detail_with(video_id, login_cookies)
-        if detail:
-            return detail
-    # 抖音接口偶发超时/风控，重试两次
+    """获取视频详情（含 play_addr）。抖音接口偶发超时/风控，重试两次。"""
     for attempt in range(3):
         detail = _fetch_detail_with(
             video_id, [{"name": "ttwid", "value": ensure_ttwid()}])
@@ -140,8 +118,7 @@ def fetch_detail(video_id: str) -> dict:
             return detail
         if attempt < 2:
             time.sleep(2)
-    raise DouyinError(
-        "该视频需要登录才能访问，或接口被风控。请先在页面上完成抖音登录后再试。")
+    raise DouyinError("该视频需要登录才能访问，或接口被风控。")
 
 
 def _fetch_detail_with(video_id: str, cookies: list) -> Optional[dict]:
@@ -157,16 +134,18 @@ def _fetch_detail_with(video_id: str, cookies: list) -> Optional[dict]:
     return detail
 
 
-def download_audio(video_id: str, detail: dict, out_dir: str) -> str:
-    """下载视频并提取 mp3 音频，返回音频路径。"""
+def download_audio(video_id: str, detail: dict, out_dir: str,
+                   progress_cb=None) -> str:
+    """下载视频并提取 mp3 音频，返回音频路径。
+
+    progress_cb(done_bytes, total_bytes): total 为 None 表示未知总长。
+    """
     url_list = detail["video"]["play_addr"]["url_list"]
     if not url_list:
         raise DouyinError("视频无可用播放地址")
     video_url = url_list[0].replace("playwm", "play")
 
-    login_cookies = load_login_cookies()
-    s = _session(login_cookies) if login_cookies else _session(
-        [{"name": "ttwid", "value": ensure_ttwid()}])
+    s = _session([{"name": "ttwid", "value": ensure_ttwid()}])
 
     # 兜底: 第一个 CDN 域名可能不通，逐个尝试
     last_err = None
@@ -175,10 +154,15 @@ def download_audio(video_id: str, detail: dict, out_dir: str) -> str:
         try:
             with s.get(u, stream=True, timeout=300) as r:
                 r.raise_for_status()
+                total = int(r.headers.get("Content-Length") or 0) or None
                 video_path = os.path.join(out_dir, "video.mp4")
+                done = 0
                 with open(video_path, "wb") as f:
                     for chunk in r.iter_content(chunk_size=1 << 16):
                         f.write(chunk)
+                        if progress_cb:
+                            done += len(chunk)
+                            progress_cb(done, total)
             last_err = None
             break
         except Exception as e:
@@ -208,7 +192,7 @@ def convert_to_wav(input_path: str, out_dir: str) -> str:
     return wav_path
 
 
-def extract_audio_from_link(url: str) -> tuple[str, dict, str]:
+def extract_audio_from_link(url: str, progress_cb=None) -> tuple[str, dict, str]:
     """完整链路: 解析链接 -> 下载 -> 提取音频。
     返回 (音频路径, 元信息, 临时目录)。
     """
@@ -222,7 +206,7 @@ def extract_audio_from_link(url: str) -> tuple[str, dict, str]:
     }
     tmpdir = tempfile.mkdtemp(prefix="dyt_")
     try:
-        audio_path = download_audio(video_id, detail, tmpdir)
+        audio_path = download_audio(video_id, detail, tmpdir, progress_cb)
     except Exception:
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise
