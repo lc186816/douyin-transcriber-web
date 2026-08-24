@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>抖音链接语音转文字</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fe2c55'><path d='M12 2a10 10 0 100 20 10 10 0 000-20zm2 8.7V15a3 3 0 11-2-2.83V8.5a.5.5 0 01.43-.5l3.07-.5a.5.5 0 01.5.5v1.2a.5.5 0 01-.5.5H14z'/></svg>">
+<style>
+  :root { --primary:#fe2c55; --bg:#f5f6f8; --card:#fff; --border:#e2e4e8; --text:#222; --muted:#777; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); padding:24px; }
+  .container { max-width:860px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px; margin-bottom:16px; }
+  .card h2 { font-size:16px; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+  .card h2 .tag { font-size:11px; background:#eef0f3; color:var(--muted); padding:2px 8px; border-radius:10px; font-weight:normal; }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  input, select, textarea { width:100%; padding:9px 12px; border:1px solid var(--border); border-radius:7px; font-size:14px; font-family:inherit; background:#fff; }
+  input:focus, select:focus, textarea:focus { outline:2px solid rgba(254,44,85,.2); border-color:var(--primary); }
+  .row { display:flex; gap:12px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:180px; }
+  .btn { display:inline-flex; align-items:center; gap:6px; padding:9px 18px; border:none; border-radius:7px; font-size:14px; cursor:pointer; font-family:inherit; }
+  .btn-primary { background:var(--primary); color:#fff; }
+  .btn-primary:hover { opacity:.9; }
+  .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
+  .btn-ghost { background:#eef0f3; color:var(--text); }
+  .btn-ghost:hover { background:#e2e5ea; }
+  .btn-block { width:100%; justify-content:center; margin-top:14px; }
+  .status { font-size:13px; color:var(--muted); margin-top:10px; line-height:1.7; }
+  .status .ok { color:#16a34a; } .status .err { color:#dc2626; } .status .warn { color:#d97706; }
+  #result { margin-top:12px; width:100%; min-height:200px; white-space:pre-wrap; font-size:13px; line-height:1.8; }
+  .meta { font-size:13px; color:var(--muted); margin-bottom:8px; }
+  .actions { display:flex; gap:10px; margin-top:10px; }
+  .login-status { display:inline-flex; align-items:center; gap:6px; font-size:13px; padding:5px 12px; border-radius:20px; background:#eef0f3; }
+  .login-status.on { background:#dcfce7; color:#16a34a; }
+  .login-status.off { background:#fee2e2; color:#dc2626; }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>抖音链接语音转文字</h1>
+  <div class="sub">粘贴抖音链接 → 提取音频 → 本地或远程识别 → 输出文字 / 字幕 / JSON</div>
+
+  <!-- 配置 -->
+  <div class="card">
+    <h2>远程识别配置 <span class="tag">OpenAI 兼容 Whisper API</span></h2>
+    <div class="row">
+      <div>
+        <label>API Key</label>
+        <input id="api_key" type="password" placeholder="sk-...">
+      </div>
+      <div>
+        <label>API 地址</label>
+        <input id="base_url" placeholder="https://api.openai.com/v1">
+      </div>
+      <div>
+        <label>模型名称</label>
+        <input id="model" placeholder="whisper-1">
+      </div>
+      <div>
+        <label>本地模型（whisper.cpp）</label>
+        <select id="local_model">
+          <option value="tiny">tiny (最快)</option>
+          <option value="base">base</option>
+          <option value="small" selected>small (推荐)</option>
+          <option value="medium">medium</option>
+          <option value="large-v3">large-v3 (最准)</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-block" id="save_cfg">保存配置</button>
+    <div class="status" id="cfg_status"></div>
+  </div>
+
+  <!-- 登录 -->
+  <div class="card">
+    <h2>抖音登录 <span class="tag">仅私密视频需要</span></h2>
+    <div class="login-status off" id="login_badge">未登录</div>
+    <p class="status">公开视频无需登录即可转写。若目标视频需要登录：点击下方按钮会打开一个可见的浏览器窗口，在其中完成扫码/账号登录，登录凭证将自动保存用于后续转写。</p>
+    <div class="actions">
+      <button class="btn btn-ghost" id="login_start">打开登录窗口</button>
+      <button class="btn btn-ghost" id="login_logout">清除登录凭证</button>
+    </div>
+    <div class="status" id="login_status"></div>
+  </div>
+
+  <!-- 转写 -->
+  <div class="card">
+    <h2>链接转文字</h2>
+    <label>抖音链接（支持 v.douyin.com 短链 / 完整链接 / 分享文本）</label>
+    <input id="url" placeholder="https://v.douyin.com/xxxxx/">
+    <div class="row" style="margin-top:12px;">
+      <div>
+        <label>识别方式</label>
+        <select id="mode">
+          <option value="local">本地识别（whisper.cpp，免费离线）</option>
+          <option value="remote">远程识别（配置的 API）</option>
+        </select>
+      </div>
+      <div>
+        <label>输出格式</label>
+        <select id="output_format">
+          <option value="text">纯文字</option>
+          <option value="srt">字幕 SRT</option>
+          <option value="json">JSON（含时间戳）</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-block" id="transcribe">开始转写</button>
+    <div class="status" id="progress"></div>
+    <div class="meta" id="result_meta"></div>
+    <textarea id="result" placeholder="转写结果将显示在这里…"></textarea>
+    <div class="actions">
+      <button class="btn btn-ghost" id="copy">复制结果</button>
+      <button class="btn btn-ghost" id="download">下载为文件</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let currentResult = "", currentFormat = "text";
+
+async function api(path, opts) {
+  const resp = await fetch(path, opts);
+  return resp.json();
+}
+
+// ── 配置 ──
+async function loadConfig() {
+  const cfg = await api("/api/config");
+  $("base_url").value = cfg.base_url || "";
+  $("model").value = cfg.model || "";
+  $("local_model").value = cfg.local_model || "small";
+  if (cfg.has_api_key) {
+    $("api_key").placeholder = "已保存: " + cfg.api_key;
+    $("api_key").value = "";
+  } else {
+    $("api_key").placeholder = "sk-...";
+  }
+}
+
+$("save_cfg").onclick = async () => {
+  const body = {
+    api_key: $("api_key").value || null,
+    base_url: $("base_url").value || null,
+    model: $("model").value || null,
+    local_model: $("local_model").value || null,
+  };
+  await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  $("cfg_status").innerHTML = '<span class="ok">配置已保存</span>';
+  loadConfig();
+  setTimeout(() => $("cfg_status").innerHTML = "", 3000);
+};
+
+// ── 登录 ──
+async function refreshLoginBadge() {
+  const r = await api("/api/login/status_all");
+  const badge = $("login_badge");
+  badge.textContent = r.logged_in ? "已登录（凭证已保存）" : "未登录";
+  badge.className = "login-status " + (r.logged_in ? "on" : "off");
+}
+
+$("login_start").onclick = async () => {
+  const r = await api("/api/login/start", { method: "POST" });
+  $("login_status").innerHTML = r.hint;
+  const poll = setInterval(async () => {
+    const s = await api("/api/login/status?sid=" + r.sid);
+    if (s.status === "done") {
+      clearInterval(poll);
+      $("login_status").innerHTML = '<span class="ok">登录成功，凭证已保存，可直接转写私密视频</span>';
+      refreshLoginBadge();
+    } else if (s.status === "error") {
+      clearInterval(poll);
+      $("login_status").innerHTML = '<span class="err">登录失败: ' + s.error + '</span>';
+    }
+  }, 2000);
+};
+
+$("login_logout").onclick = async () => {
+  await api("/api/login/logout", { method: "POST" });
+  $("login_status").innerHTML = "已清除登录凭证";
+  refreshLoginBadge();
+};
+
+// ── 转写 ──
+$("transcribe").onclick = async () => {
+  const btn = $("transcribe");
+  const url = $("url").value.trim();
+  if (!url) { $("progress").innerHTML = '<span class="err">请输入抖音链接</span>'; return; }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 处理中…';
+  $("progress").innerHTML = '<span class="warn">下载视频并提取音频中（长视频可能需要几分钟）…</span>';
+  $("result").value = ""; $("result_meta").textContent = "";
+
+  const r = await api("/api/transcribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url,
+      mode: $("mode").value,
+      output_format: $("output_format").value,
+    }),
+  });
+
+  btn.disabled = false;
+  btn.textContent = "开始转写";
+  if (r.error) {
+    $("progress").innerHTML = '<span class="err">' + r.error + '</span>';
+    return;
+  }
+  $("progress").innerHTML = '<span class="ok">完成</span>';
+  const m = r.meta;
+  $("result_meta").textContent =
+    `标题: ${m.title} | 作者: ${m.author} | 时长: ${m.duration}秒 | 模式: ${r.mode === "local" ? "本地" : "远程"} | 模型: ${r.model}`;
+  currentResult = r.result;
+  currentFormat = r.format;
+  $("result").value = r.result;
+};
+
+$("copy").onclick = () => {
+  navigator.clipboard.writeText($("result").value).then(() => {
+    $("progress").innerHTML = '<span class="ok">已复制</span>';
+  });
+};
+
+$("download").onclick = () => {
+  if (!$("result").value) return;
+  const ext = currentFormat === "srt" ? "srt" : currentFormat === "json" ? "json" : "txt";
+  const blob = new Blob([$("result").value], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "transcript." + ext;
+  a.click();
+};
+
+loadConfig();
+refreshLoginBadge();
+</script>
+</body>
+</html>

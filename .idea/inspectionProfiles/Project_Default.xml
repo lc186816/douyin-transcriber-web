@@ -1,0 +1,133 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyArgumentEqualDefaultInspection" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
+    <inspection_tool class="PyAugmentAssignmentInspection" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
+    <inspection_tool class="PyMissingTypeHintsInspection" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="annotated-doc" />
+          <option value="PyMySQL" />
+          <option value="alembic" />
+          <option value="amqp" />
+          <option value="annotated-types" />
+          <option value="anyio" />
+          <option value="appdirs" />
+          <option value="bcrypt" />
+          <option value="billiard" />
+          <option value="boto3" />
+          <option value="botocore" />
+          <option value="CacheControl" />
+          <option value="celery" />
+          <option value="certifi" />
+          <option value="cffi" />
+          <option value="charset-normalizer" />
+          <option value="click" />
+          <option value="click-didyoumean" />
+          <option value="click-plugins" />
+          <option value="click-repl" />
+          <option value="cryptography" />
+          <option value="dnspython" />
+          <option value="ecdsa" />
+          <option value="elastic-transport" />
+          <option value="elasticsearch" />
+          <option value="email_validator" />
+          <option value="Faker" />
+          <option value="fastapi" />
+          <option value="fpdf" />
+          <option value="greenlet" />
+          <option value="h11" />
+          <option value="httpcore" />
+          <option value="httptools" />
+          <option value="httpx" />
+          <option value="idna" />
+          <option value="iniconfig" />
+          <option value="jmespath" />
+          <option value="kombu" />
+          <option value="loguru" />
+          <option value="Mako" />
+          <option value="MarkupSafe" />
+          <option value="msgpack" />
+          <option value="oracledb" />
+          <option value="packaging" />
+          <option value="passlib" />
+          <option value="pip-api" />
+          <option value="pip-download" />
+          <option value="playwright" />
+          <option value="pluggy" />
+          <option value="prometheus-client" />
+          <option value="prompt_toolkit" />
+          <option value="pyasn1" />
+          <option value="pycparser" />
+          <option value="pydantic" />
+          <option value="pydantic-settings" />
+          <option value="pydantic_core" />
+          <option value="pyee" />
+          <option value="PyJWT" />
+          <option value="pytest" />
+          <option value="pytest-asyncio" />
+          <option value="python-dateutil" />
+          <option value="python-dotenv" />
+          <option value="python-multipart" />
+          <option value="PyYAML" />
+          <option value="redis" />
+          <option value="requests" />
+          <option value="retrying" />
+          <option value="rsa" />
+          <option value="s3transfer" />
+          <option value="setuptools" />
+          <option value="six" />
+          <option value="sniffio" />
+          <option value="SQLAlchemy" />
+          <option value="starlette" />
+          <option value="typing-inspection" />
+          <option value="typing_extensions" />
+          <option value="tzdata" />
+          <option value="tzlocal" />
+          <option value="ua-parser" />
+          <option value="ua-parser-builtins" />
+          <option value="urllib3" />
+          <option value="user-agents" />
+          <option value="uvicorn" />
+          <option value="uvloop" />
+          <option value="vine" />
+          <option value="watchfiles" />
+          <option value="wcwidth" />
+          <option value="websockets" />
+          <option value="wheel" />
+          <option value="weasyprint" />
+          <option value="gmssl" />
+          <option value="fastapi-cache" />
+          <option value="fastapi-cli" />
+          <option value="fastapi-cloud-cli" />
+          <option value="fastar" />
+          <option value="markdown-it-py" />
+          <option value="mdurl" />
+          <option value="pydantic-extra-types" />
+          <option value="Pygments" />
+          <option value="rich" />
+          <option value="rich-toolkit" />
+          <option value="rignore" />
+          <option value="sentry-sdk" />
+          <option value="shellingham" />
+          <option value="typer" />
+        </list>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyPep8Inspection" enabled="true" level="WEAK WARNING" enabled_by_default="true" editorAttributes="INFO_ATTRIBUTES">
+      <option name="ignoredErrors">
+        <list>
+          <option value="E501" />
+        </list>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyStubPackagesAdvertiser" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="pandas" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
