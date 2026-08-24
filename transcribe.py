@@ -37,14 +37,44 @@ def _find_whisper_cli() -> str:
 _MODEL_MIRROR = "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-{name}.bin"
 
 
-def ensure_model(name: str) -> str:
+def model_exists(name: str) -> bool:
+    path = os.path.join(MODELS_DIR, f"ggml-{name}.bin")
+    return os.path.exists(path) and os.path.getsize(path) > 1024 * 1024
+
+
+def _stream_download(url: str, tmp: str, progress_cb=None) -> None:
+    """requests 流式下载；progress_cb(done_bytes, total_bytes) 汇报进度。"""
+    with requests.get(url, stream=True, timeout=120) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("Content-Length") or 0) or None
+        done = 0
+        with open(tmp, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1 << 16):
+                f.write(chunk)
+                if progress_cb:
+                    done += len(chunk)
+                    progress_cb(done, total)
+
+
+def ensure_model(name: str, progress_cb=None) -> str:
     os.makedirs(MODELS_DIR, exist_ok=True)
     path = os.path.join(MODELS_DIR, f"ggml-{name}.bin")
-    if os.path.exists(path) and os.path.getsize(path) > 1024 * 1024:
+    if model_exists(name):
         return path
     tmp = path + ".part"
-    # 用 curl 下载（requests 在某些环境有 SSL 证书问题），镜像优先、官方兜底
-    for url in (_MODEL_MIRROR.format(name=name), _MODEL_URL.format(name=name)):
+    urls = (_MODEL_MIRROR.format(name=name), _MODEL_URL.format(name=name))
+    # 优先 requests 流式下载（可报进度）；SSL 有问题的环境退回 curl
+    for url in urls:
+        try:
+            _stream_download(url, tmp, progress_cb)
+            if os.path.getsize(tmp) > 1024 * 1024:
+                os.replace(tmp, path)
+                return path
+        except Exception:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+    # 兜底: 用 curl 下载（无进度），镜像优先、官方兜底
+    for url in urls:
         result = subprocess.run(
             ["curl", "-sL", "--connect-timeout", "20", "-o", tmp, url],
             capture_output=True, text=True)

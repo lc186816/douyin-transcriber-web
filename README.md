@@ -13,8 +13,8 @@
 ## 启动
 
 ```bash
-pip install -r requirements.txt
-uvicorn app:app --port 8000
+pip install -r requirements.txt   # 首次
+./start.sh                        # 或 python app.py
 ```
 
 打开 http://127.0.0.1:8000

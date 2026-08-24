@@ -47,4 +47,8 @@ check("srt from segments", True)
 assert douyin._VIDEO_ID_RE.search("no url here") is None
 check("no video id on garbage", True)
 
+# 模型状态判断
+assert not transcribe.model_exists("definitely-not-a-model")
+check("model_exists false for unknown", True)
+
 print("all checks passed")

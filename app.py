@@ -14,6 +14,7 @@ import shutil
 import threading
 from pathlib import Path
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -199,4 +200,41 @@ def transcribe_stream(req: TranscribeRequest):
     return StreamingResponse(event_source(), media_type="text/event-stream")
 
 
+@app.get("/api/model/status")
+def model_status(name: str):
+    return {"downloaded": transcribe.model_exists(name)}
+
+
+@app.get("/api/model/download/stream")
+def model_download_stream(name: str):
+    """SSE: 下载 whisper 模型，事件: progress / done / error。"""
+    def event_source():
+        q: queue.Queue = queue.Queue()
+
+        def run():
+            try:
+                transcribe.ensure_model(
+                    name,
+                    progress_cb=lambda done, total: q.put(("progress", {"done": done, "total": total})))
+                q.put(("done", {"model": name}))
+            except Exception as e:
+                q.put(("error", {"message": str(e)}))
+            finally:
+                q.put(None)
+
+        threading.Thread(target=run, daemon=True).start()
+        while True:
+            item = q.get()
+            if item is None:
+                break
+            event, payload = item
+            yield f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_source(), media_type="text/event-stream")
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="127.0.0.1", port=8000)

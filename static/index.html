@@ -43,6 +43,12 @@
   .tag.free { background:#dcfce7; color:#16a34a; }
   .prov-detail, .prov-note { font-size:12px; color:var(--muted); margin-bottom:4px; line-height:1.6; }
   .btn-sm { padding:5px 12px; font-size:13px; margin-top:6px; }
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; z-index:100; }
+  .modal-overlay[hidden] { display:none; }
+  .modal { background:#fff; border-radius:10px; padding:24px 20px 20px; width:420px; max-width:90%; position:relative; }
+  .modal h3 { font-size:15px; margin-bottom:12px; }
+  .modal-x { position:absolute; top:12px; right:16px; cursor:pointer; color:var(--muted); font-size:18px; line-height:1; background:none; border:none; padding:2px 6px; }
+  .modal-x:hover { color:var(--text); }
 </style>
 </head>
 <body>
@@ -69,12 +75,18 @@
       <div>
         <label>本地模型（whisper.cpp）</label>
         <select id="local_model">
-          <option value="tiny">tiny (最快)</option>
-          <option value="base">base</option>
-          <option value="small" selected>small (推荐)</option>
-          <option value="medium">medium</option>
-          <option value="large-v3">large-v3 (最准)</option>
+          <option value="tiny">tiny（75M，最快）</option>
+          <option value="base">base（142M）</option>
+          <option value="small" selected>small（466M，推荐）</option>
+          <option value="medium">medium（1.5G）</option>
+          <option value="large-v1">large-v1（3.1G）</option>
+          <option value="large-v2">large-v2（3.1G）</option>
+          <option value="large-v3">large-v3（3.1G，最准）</option>
+          <option value="large-v3-turbo">large-v3-turbo（1.6G，快）</option>
         </select>
+        <div class="actions" style="margin-top:8px;">
+          <button class="btn btn-ghost btn-sm" id="download_model">开始下载模型</button>
+        </div>
       </div>
     </div>
     <button class="btn btn-primary btn-block" id="save_cfg">保存配置</button>
@@ -144,6 +156,19 @@
   </div>
 </div>
 
+<!-- 模型下载弹窗 -->
+<div class="modal-overlay" id="dl_modal" hidden>
+  <div class="modal">
+    <button class="modal-x" id="dl_x" title="最小化">×</button>
+    <h3>下载模型 <span id="dl_name"></span></h3>
+    <div class="prog-bar"><div class="prog-fill" id="dl_fill"></div></div>
+    <div class="status" id="dl_status"></div>
+    <div class="actions">
+      <button class="btn btn-ghost btn-sm" id="dl_close">最小化（后台下载）</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const $ = id => document.getElementById(id);
 let currentResult = "", currentFormat = "text";
@@ -151,6 +176,26 @@ let currentResult = "", currentFormat = "text";
 async function api(path, opts) {
   const resp = await fetch(path, opts);
   return resp.json();
+}
+
+async function readSSE(resp, onEvent) {
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf("\n\n")) >= 0) {
+      const raw = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      const evt = (raw.match(/^event: (.+)$/m) || [])[1];
+      const data = (raw.match(/^data: (.+)$/m) || [])[1];
+      if (!data) continue;
+      onEvent(evt, JSON.parse(data));
+    }
+  }
 }
 
 // ── 配置 ──
@@ -188,6 +233,90 @@ document.querySelectorAll(".prov-fill").forEach(btn => {
     $("cfg_status").innerHTML = '<span class="warn">已填入接口地址和模型，粘贴 API Key 后点保存</span>';
   };
 });
+
+// ── 本地模型下载 ──
+let downloading = null;   // null 或正在后台下载的模型名
+
+function setDlProgress(pct, indeterminate) {
+  const fill = $("dl_fill");
+  fill.classList.toggle("indet", !!indeterminate);
+  if (indeterminate) fill.style.width = "";
+  else fill.style.width = Math.max(2, Math.min(100, pct)) + "%";
+}
+
+async function refreshModelStatus() {
+  const name = $("local_model").value;
+  const r = await api("/api/model/status?name=" + encodeURIComponent(name));
+  const btn = $("download_model");
+  btn.disabled = r.downloaded || !!downloading;
+  btn.textContent = downloading
+    ? "下载中（" + downloading + "）…"
+    : (r.downloaded ? "已下载" : "开始下载模型");
+}
+
+$("local_model").onchange = refreshModelStatus;
+
+$("download_model").onclick = async () => {
+  if (downloading) {   // 后台下载中，点按钮重新打开进度弹窗
+    $("dl_modal").hidden = false;
+    return;
+  }
+  const name = $("local_model").value;
+  downloading = name;
+  refreshModelStatus();
+  $("dl_modal").hidden = false;
+  $("dl_name").textContent = name;
+  $("dl_close").textContent = "最小化（后台下载）";
+  $("dl_status").textContent = "";
+  setDlProgress(0, false);
+
+  let resp;
+  try {
+    resp = await fetch("/api/model/download/stream?name=" + encodeURIComponent(name));
+  } catch (e) {
+    $("dl_status").innerHTML = '<span class="err">请求失败: ' + e.message + '</span>';
+    downloading = null;
+    refreshModelStatus();
+    return;
+  }
+  try {
+    await readSSE(resp, (evt, data) => {
+      if (evt === "progress") {
+        const pct = data.total ? data.done / data.total * 100 : null;
+        setDlProgress(pct, pct === null);
+        const shown = pct !== null ? pct.toFixed(0) + "%" : Math.round(data.done / 1048576) + " MB";
+        $("dl_status").innerHTML = '<span class="warn">下载中 ' + shown + '…</span>';
+      } else {
+        downloading = null;
+        $("dl_close").textContent = "关闭";
+        refreshModelStatus();
+        if (evt === "done") {
+          setDlProgress(100, false);
+          $("dl_status").innerHTML = '<span class="ok">下载完成</span>';
+        } else {
+          setDlProgress(0, false);
+          $("dl_status").innerHTML = '<span class="err">' + (data.message || "下载失败") + '</span>';
+        }
+      }
+    });
+  } catch (e) {
+    downloading = null;
+    $("dl_status").innerHTML = '<span class="err">连接中断: ' + e.message + '</span>';
+    $("dl_close").textContent = "关闭";
+    refreshModelStatus();
+  }
+};
+
+// 最小化: 隐藏弹窗但后台继续下载；点遮罩层 / × 同样最小化
+function hideDlModal() {
+  $("dl_modal").hidden = true;
+  if (!downloading) refreshModelStatus();
+}
+$("dl_close").onclick = hideDlModal;
+$("dl_x").onclick = hideDlModal;
+$("dl_modal").onclick = e => {
+  if (e.target === $("dl_modal")) hideDlModal();
+};
 
 // ── 转写（SSE 流式，含下载进度）──
 function setProgress(pct, indeterminate) {
@@ -254,25 +383,12 @@ $("transcribe").onclick = async () => {
     return;
   }
 
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "", gotDone = false;
+  let gotDone = false;
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf("\n\n")) >= 0) {
-        const raw = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        const evt = (raw.match(/^event: (.+)$/m) || [])[1];
-        const data = (raw.match(/^data: (.+)$/m) || [])[1];
-        if (!data) continue;
-        handleTranscribeEvent(evt, JSON.parse(data));
-        if (evt === "done") gotDone = true;
-      }
-    }
+    await readSSE(resp, (evt, data) => {
+      handleTranscribeEvent(evt, data);
+      if (evt === "done") gotDone = true;
+    });
   } catch (e) {
     transcribeFail("连接中断: " + e.message);
   } finally {
@@ -299,6 +415,7 @@ $("download").onclick = () => {
 };
 
 loadConfig();
+refreshModelStatus();
 </script>
 </body>
 </html>
