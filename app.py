@@ -21,6 +21,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import douyin
+import llm
+import market
 import storage
 import transcribe
 
@@ -38,6 +40,9 @@ DEFAULT_CONFIG = {
     "model": "whisper-1",
     "local_model": "small",
     "format": "text",
+    "llm_api_key": "",
+    "llm_base_url": "",
+    "llm_model": "",
 }
 
 # ── 配置 ──────────────────────────────────────────────
@@ -76,6 +81,9 @@ class ConfigUpdate(BaseModel):
     model: str | None = None
     local_model: str | None = None
     format: str | None = None
+    llm_api_key: str | None = None
+    llm_base_url: str | None = None
+    llm_model: str | None = None
 
 
 @app.get("/")
@@ -92,6 +100,10 @@ def get_config():
         k = cfg["api_key"]
         masked["api_key"] = k[:3] + "****" + k[-4:] if len(k) > 8 else "****"
     masked["has_api_key"] = bool(cfg["api_key"])
+    if cfg["llm_api_key"]:
+        k = cfg["llm_api_key"]
+        masked["llm_api_key"] = k[:3] + "****" + k[-4:] if len(k) > 8 else "****"
+    masked["has_llm_api_key"] = bool(cfg["llm_api_key"])
     return masked
 
 
@@ -102,6 +114,8 @@ def update_config(update: ConfigUpdate):
     # 打码的 key 不改写真实值
     if "api_key" in data and data["api_key"].endswith("****"):
         del data["api_key"]
+    if "llm_api_key" in data and data["llm_api_key"].endswith("****"):
+        del data["llm_api_key"]
     cfg.update(data)
     save_config(cfg)
     return {"ok": True}
@@ -186,7 +200,8 @@ def _run_transcribe(req: TranscribeRequest, emit) -> None:
         emit("error", {"message": f"转写失败: {e}"})
         return
 
-    storage.add_transcript(video_id, req.mode, model, output_format, result)
+    transcript_id = storage.add_transcript(video_id, req.mode, model,
+                                           output_format, result)
 
     emit("done", {
         "ok": True,
@@ -195,6 +210,7 @@ def _run_transcribe(req: TranscribeRequest, emit) -> None:
         "mode": req.mode,
         "model": model,
         "format": output_format,
+        "transcript_id": transcript_id,
         "video_id": video_id,
         "video_url": f"/api/videos/{video_id}/video",
         "download_url": f"/api/videos/{video_id}/video?download=1",
@@ -239,6 +255,59 @@ def transcribe_stream(req: TranscribeRequest):
             yield f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_source(), media_type="text/event-stream")
+
+
+class FixRequest(BaseModel):
+    transcript_id: int
+
+
+class MarketAnalyzeRequest(BaseModel):
+    transcript_ids: list[int] = []
+
+
+@app.post("/api/llm/fix")
+def fix_text(req: FixRequest):
+    cfg = load_config()
+    t = storage.get_transcript(req.transcript_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="转写记录不存在")
+    try:
+        fixed = llm.fix_text(cfg, t.result)
+    except douyin.DouyinError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    storage.set_fixed(t.id, fixed)
+    return {"fixed": fixed, "original": t.result}
+
+
+@app.post("/api/market/analyze")
+def market_analyze(req: MarketAnalyzeRequest):
+    if not req.transcript_ids:
+        raise HTTPException(status_code=400, detail="请先勾选视频文案")
+    cfg = load_config()
+    try:
+        mkt = market.fetch_market_data()
+    except douyin.DouyinError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    texts = []
+    for tid in req.transcript_ids:
+        t = storage.get_transcript(tid)
+        if t and t.result:
+            texts.append(t.result)
+    if not texts:
+        raise HTTPException(status_code=400, detail="勾选的文案均无转写内容")
+    market_json = json.dumps(mkt, ensure_ascii=False, indent=2)
+    try:
+        result = llm.analyze_market(cfg, market_json, "\n\n".join(texts))
+    except douyin.DouyinError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    storage.add_analysis(market_json,
+                         ",".join(str(i) for i in req.transcript_ids), result)
+    return {"result": result, "market_data": market_json}
+
+
+@app.get("/api/market/analyses")
+def list_analyses():
+    return {"analyses": storage.list_analyses()}
 
 
 @app.get("/api/videos")

@@ -67,4 +67,15 @@ videos = storage_mod.list_videos()
 check("storage upsert updates",
       len(videos) == 1 and videos[0]["title"] == "新标题")
 
+# 存储: fixed 列 + analyses
+storage_mod.set_fixed(1, "修正后的文字")
+t = storage_mod.get_transcript(1)
+check("storage fixed roundtrip", t is not None and t.fixed == "修正后的文字")
+videos = storage_mod.list_videos()
+check("storage list includes fixed", videos[0]["transcript"]["fixed"] == "修正后的文字")
+storage_mod.add_analysis('{"a": 1}', "1,2", "预测结果")
+analyses = storage_mod.list_analyses()
+check("storage analyses roundtrip",
+      len(analyses) == 1 and analyses[0]["result"] == "预测结果")
+
 print("all checks passed")

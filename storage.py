@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import (
-    Column, DateTime, ForeignKey, Integer, String, Text, create_engine, select,
+    Column, DateTime, ForeignKey, Integer, String, Text, create_engine,
+    select, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
 
@@ -36,8 +37,18 @@ class Transcript(Base):
     model = Column(String, default="")
     format = Column(String, default="")
     result = Column(Text, default="")
+    fixed = Column(Text, default="")           # 语序修正后文字
     created_at = Column(DateTime, default=datetime.now)
     video = relationship("Video", back_populates="transcripts")
+
+
+class Analysis(Base):
+    __tablename__ = "analyses"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    market_data = Column(Text, default="")     # 行情快照 JSON
+    transcript_ids = Column(String, default="")
+    result = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.now)
 
 
 _engine = None
@@ -54,6 +65,16 @@ def init_db(db_path=DB_FILE) -> None:
     _engine = create_engine(url)
     Base.metadata.create_all(_engine)
     _session_factory = sessionmaker(bind=_engine)
+    _migrate()
+
+
+def _migrate() -> None:
+    """已有库补列：transcripts.fixed（create_all 不会给旧表加列）。"""
+    with _session() as s:
+        cols = [r[1] for r in s.execute(text("PRAGMA table_info(transcripts)"))]
+        if "fixed" not in cols:
+            s.execute(text("ALTER TABLE transcripts ADD COLUMN fixed TEXT"))
+            s.commit()
 
 
 def _session() -> Session:
@@ -83,11 +104,45 @@ def upsert_video(video_id: str, url: str, title: str = "",
 
 
 def add_transcript(video_id: str, mode: str, model: str,
-                   output_format: str, result: str) -> None:
+                   output_format: str, result: str) -> int:
     with _session() as s:
-        s.add(Transcript(video_id=video_id, mode=mode, model=model,
-                         format=output_format, result=result))
+        t = Transcript(video_id=video_id, mode=mode, model=model,
+                       format=output_format, result=result)
+        s.add(t)
         s.commit()
+        s.refresh(t)
+        return t.id
+
+
+def get_transcript(transcript_id: int) -> Optional[Transcript]:
+    with _session() as s:
+        return s.get(Transcript, transcript_id)
+
+
+def set_fixed(transcript_id: int, fixed_text: str) -> None:
+    with _session() as s:
+        t = s.get(Transcript, transcript_id)
+        if t is not None:
+            t.fixed = fixed_text
+            s.commit()
+
+
+def add_analysis(market_data: str, transcript_ids: str, result: str) -> None:
+    with _session() as s:
+        s.add(Analysis(market_data=market_data, transcript_ids=transcript_ids,
+                       result=result))
+        s.commit()
+
+
+def list_analyses() -> list:
+    with _session() as s:
+        rows = s.scalars(
+            select(Analysis).order_by(Analysis.created_at.desc())).all()
+        return [{
+            "id": r.id,
+            "created_at": r.created_at.strftime("%Y-%m-%d %H:%M"),
+            "result": r.result,
+        } for r in rows]
 
 
 def list_videos() -> list:
@@ -113,6 +168,7 @@ def list_videos() -> list:
                     "model": t.model,
                     "format": t.format,
                     "result": t.result,
+                    "fixed": t.fixed,
                     "created_at": t.created_at.strftime("%Y-%m-%d %H:%M"),
                 } if t else None,
             })

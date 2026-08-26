@@ -55,89 +55,152 @@
   .history-title { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .history-sub { color:var(--muted); font-size:12px; margin-top:2px; }
   .empty { color:var(--muted); font-size:13px; }
+  .tabs { display:flex; gap:8px; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:10px; }
+  .tab { padding:8px 18px; border:none; border-radius:7px; background:#eef0f3; color:var(--text); font-size:14px; cursor:pointer; font-family:inherit; }
+  .tab.active { background:var(--primary); color:#fff; }
+  .tab-panel[hidden] { display:none; }
+  .check { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); margin:12px 0 0; }
+  .check input { width:auto; }
+  .mkt-item { display:flex; align-items:flex-start; gap:8px; padding:8px 0; border-bottom:1px solid var(--border); cursor:pointer; font-size:13px; }
+  .mkt-item input { width:auto; margin-top:2px; }
+  .mkt-item .history-info { display:flex; flex-direction:column; flex:1; min-width:0; }
+  #result_fixed { margin-top:8px; width:100%; min-height:140px; white-space:pre-wrap; font-size:13px; line-height:1.8; }
+  #market_result { margin-top:8px; width:100%; min-height:240px; white-space:pre-wrap; font-size:13px; line-height:1.8; }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>抖音链接语音转文字</h1>
-  <div class="sub">粘贴抖音链接 → 提取音频 → 本地或远程识别 → 输出文字 / 字幕 / JSON</div>
+  <div class="sub">转写视频 → 语序修正 → 市场情绪分析</div>
 
-  <!-- 配置 -->
-  <div class="card">
-    <h2>远程识别配置 <span class="tag">OpenAI 兼容 Whisper API</span></h2>
-    <div class="row">
-      <div>
-        <label>API Key</label>
-        <input id="api_key" type="password" placeholder="sk-...">
-      </div>
-      <div>
-        <label>API 地址</label>
-        <input id="base_url" placeholder="https://api.openai.com/v1">
-      </div>
-      <div>
-        <label>模型名称</label>
-        <input id="model" placeholder="whisper-1">
-      </div>
-      <div>
-        <label>本地模型（whisper.cpp）</label>
-        <select id="local_model">
-          <option value="tiny">tiny（75M，最快）</option>
-          <option value="base">base（142M）</option>
-          <option value="small" selected>small（466M，推荐）</option>
-          <option value="medium">medium（1.5G）</option>
-          <option value="large-v1">large-v1（3.1G）</option>
-          <option value="large-v2">large-v2（3.1G）</option>
-          <option value="large-v3">large-v3（3.1G，最准）</option>
-          <option value="large-v3-turbo">large-v3-turbo（1.6G，快）</option>
-        </select>
-        <div class="actions" style="margin-top:8px;">
-          <button class="btn btn-ghost btn-sm" id="download_model">开始下载模型</button>
+  <nav class="tabs">
+    <button class="tab active" data-tab="transcribe">转写工具</button>
+    <button class="tab" data-tab="market">市场分析</button>
+    <button class="tab" data-tab="history">历史记录</button>
+    <button class="tab" data-tab="settings">设置</button>
+  </nav>
+
+  <!-- 转写工具 -->
+  <section id="tab-transcribe" class="tab-panel">
+    <div class="card">
+      <h2>链接转文字</h2>
+      <label>抖音链接（支持 v.douyin.com 短链 / 完整链接 / 分享文本）</label>
+      <input id="url" placeholder="https://v.douyin.com/xxxxx/">
+      <div class="row" style="margin-top:12px;">
+        <div>
+          <label>识别方式</label>
+          <select id="mode">
+            <option value="local">本地识别（whisper.cpp，免费离线）</option>
+            <option value="remote">远程识别（配置的 API）</option>
+          </select>
+        </div>
+        <div>
+          <label>输出格式</label>
+          <select id="output_format">
+            <option value="text">纯文字</option>
+            <option value="srt">字幕 SRT</option>
+            <option value="json">JSON（含时间戳）</option>
+          </select>
         </div>
       </div>
+      <label class="check"><input type="checkbox" id="fix_enabled"> 语序修正（用文本大模型修正语序/断句/同音字，需先在设置中配置）</label>
+      <button class="btn btn-primary btn-block" id="transcribe">开始转写</button>
+      <div class="prog-bar" id="prog_wrap" hidden><div class="prog-fill" id="prog_fill"></div></div>
+      <div class="status" id="progress"></div>
+      <div class="meta" id="result_meta"></div>
+      <textarea id="result" placeholder="转写结果将显示在这里…"></textarea>
+      <div id="fixed_wrap" hidden>
+        <div class="meta" style="margin-top:10px;">修正后（文本大模型）</div>
+        <textarea id="result_fixed" placeholder="语序修正结果…"></textarea>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost" id="copy">复制结果</button>
+        <button class="btn btn-ghost" id="download">下载为文件</button>
+      </div>
     </div>
-    <button class="btn btn-ghost btn-sm" id="open_prov" style="margin-top:14px;">免费 Whisper API 推荐</button>
-    <button class="btn btn-primary btn-block" id="save_cfg">保存配置</button>
-    <div class="status" id="cfg_status"></div>
-  </div>
+  </section>
 
-  <!-- 转写 -->
-  <div class="card">
-    <h2>链接转文字</h2>
-    <label>抖音链接（支持 v.douyin.com 短链 / 完整链接 / 分享文本）</label>
-    <input id="url" placeholder="https://v.douyin.com/xxxxx/">
-    <div class="row" style="margin-top:12px;">
-      <div>
-        <label>识别方式</label>
-        <select id="mode">
-          <option value="local">本地识别（whisper.cpp，免费离线）</option>
-          <option value="remote">远程识别（配置的 API）</option>
-        </select>
+  <!-- 市场分析 -->
+  <section id="tab-market" class="tab-panel" hidden>
+    <div class="card">
+      <h2>市场分析 <span class="tag">A股明日情绪预测</span></h2>
+      <div class="sub">勾选要作为情绪素材的视频文案，点击生成预测（自动抓取今日行情 + 文本大模型分析）</div>
+      <div id="market_sources"></div>
+      <button class="btn btn-primary btn-block" id="market_run">获取行情并生成预测</button>
+      <div class="prog-bar" id="mkt_prog_wrap" hidden><div class="prog-fill indet" id="mkt_prog_fill"></div></div>
+      <div class="status" id="mkt_status"></div>
+      <div id="market_result_wrap" hidden>
+        <div class="meta" style="margin-top:10px;">预测结果</div>
+        <textarea id="market_result" placeholder="市场分析结果…"></textarea>
       </div>
-      <div>
-        <label>输出格式</label>
-        <select id="output_format">
-          <option value="text">纯文字</option>
-          <option value="srt">字幕 SRT</option>
-          <option value="json">JSON（含时间戳）</option>
-        </select>
-      </div>
+      <h3 style="margin-top:16px; font-size:14px;">历史分析</h3>
+      <div id="market_history"></div>
     </div>
-    <button class="btn btn-primary btn-block" id="transcribe">开始转写</button>
-    <div class="prog-bar" id="prog_wrap" hidden><div class="prog-fill" id="prog_fill"></div></div>
-    <div class="status" id="progress"></div>
-    <div class="meta" id="result_meta"></div>
-    <textarea id="result" placeholder="转写结果将显示在这里…"></textarea>
-    <div class="actions">
-      <button class="btn btn-ghost" id="copy">复制结果</button>
-      <button class="btn btn-ghost" id="download">下载为文件</button>
-    </div>
-  </div>
+  </section>
 
   <!-- 历史记录 -->
-  <div class="card">
-    <h2>历史记录 <span class="tag">本地缓存视频</span></h2>
-    <div id="history_list"></div>
-  </div>
+  <section id="tab-history" class="tab-panel" hidden>
+    <div class="card">
+      <h2>历史记录 <span class="tag">本地缓存视频</span></h2>
+      <div id="history_list"></div>
+    </div>
+  </section>
+
+  <!-- 设置 -->
+  <section id="tab-settings" class="tab-panel" hidden>
+    <div class="card">
+      <h2>远程识别配置 <span class="tag">OpenAI 兼容 Whisper API</span></h2>
+      <div class="row">
+        <div>
+          <label>API Key</label>
+          <input id="api_key" type="password" placeholder="sk-...">
+        </div>
+        <div>
+          <label>API 地址</label>
+          <input id="base_url" placeholder="https://api.openai.com/v1">
+        </div>
+        <div>
+          <label>模型名称</label>
+          <input id="model" placeholder="whisper-1">
+        </div>
+      </div>
+      <div class="actions" style="margin-top:8px;">
+        <button class="btn btn-ghost btn-sm" id="open_prov">免费 Whisper API 推荐</button>
+      </div>
+      <h2 style="margin-top:18px;">本地模型（whisper.cpp）</h2>
+      <label>本地模型</label>
+      <select id="local_model">
+        <option value="tiny">tiny（75M，最快）</option>
+        <option value="base">base（142M）</option>
+        <option value="small" selected>small（466M，推荐）</option>
+        <option value="medium">medium（1.5G）</option>
+        <option value="large-v1">large-v1（3.1G）</option>
+        <option value="large-v2">large-v2（3.1G）</option>
+        <option value="large-v3">large-v3（3.1G，最准）</option>
+        <option value="large-v3-turbo">large-v3-turbo（1.6G，快）</option>
+      </select>
+      <div class="actions" style="margin-top:8px;">
+        <button class="btn btn-ghost btn-sm" id="download_model">开始下载模型</button>
+      </div>
+      <h2 style="margin-top:18px;">文本大模型配置 <span class="tag">语序修正 / 市场分析</span></h2>
+      <div class="row">
+        <div>
+          <label>API 地址</label>
+          <input id="llm_base_url" placeholder="https://api.openai.com/v1">
+        </div>
+        <div>
+          <label>模型名称</label>
+          <input id="llm_model" placeholder="gpt-4o-mini">
+        </div>
+        <div>
+          <label>API Key</label>
+          <input id="llm_api_key" type="password" placeholder="sk-...">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-block" id="save_cfg">保存配置</button>
+      <div class="status" id="cfg_status"></div>
+    </div>
+  </section>
 </div>
 
 <!-- 模型下载弹窗 -->
@@ -196,11 +259,22 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let currentResult = "", currentFormat = "text";
+let currentResult = "", currentFormat = "text", lastTranscriptId = null;
+
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.hidden = true);
+    btn.classList.add("active");
+    $("tab-" + btn.dataset.tab).hidden = false;
+  };
+});
 
 async function api(path, opts) {
   const resp = await fetch(path, opts);
-  return resp.json();
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.detail || ("HTTP " + resp.status));
+  return data;
 }
 
 async function readSSE(resp, onEvent) {
@@ -235,14 +309,28 @@ async function loadConfig() {
   } else {
     $("api_key").placeholder = "sk-...";
   }
+  $("llm_base_url").value = cfg.llm_base_url || "";
+  $("llm_model").value = cfg.llm_model || "";
+  if (cfg.has_llm_api_key) {
+    $("llm_api_key").placeholder = "已保存: " + cfg.llm_api_key;
+    $("llm_api_key").value = "";
+  } else {
+    $("llm_api_key").placeholder = "sk-...";
+  }
+  const llmReady = cfg.llm_model && cfg.llm_base_url && cfg.has_llm_api_key;
+  $("fix_enabled").disabled = !llmReady;
+  $("fix_enabled").title = llmReady ? "" : "请先在设置中配置文本大模型";
 }
 
 $("save_cfg").onclick = async () => {
   const body = {
-    api_key: $("api_key").value || null,
-    base_url: $("base_url").value || null,
-    model: $("model").value || null,
-    local_model: $("local_model").value || null,
+    api_key: $("api_key").value,
+    base_url: $("base_url").value,
+    model: $("model").value,
+    local_model: $("local_model").value,
+    llm_api_key: $("llm_api_key").value,
+    llm_base_url: $("llm_base_url").value,
+    llm_model: $("llm_model").value,
   };
   await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   $("cfg_status").innerHTML = '<span class="ok">配置已保存</span>';
@@ -381,7 +469,10 @@ function handleTranscribeEvent(evt, data) {
       `标题: ${m.title} | 作者: ${m.author} | 时长: ${m.duration}秒 | 模式: ${data.mode === "local" ? "本地" : "远程"} | 模型: ${data.model}`;
     currentResult = data.result;
     currentFormat = data.format;
+    lastTranscriptId = data.transcript_id;
     $("result").value = data.result;
+    $("fixed_wrap").hidden = true;
+    $("result_fixed").value = "";
     loadVideos();
   } else if (evt === "error") {
     transcribeFail(data.message || "未知错误");
@@ -427,19 +518,40 @@ $("transcribe").onclick = async () => {
     btn.disabled = false;
     btn.textContent = "开始转写";
   }
+  if (gotDone && $("fix_enabled").checked && lastTranscriptId) {
+    $("progress").innerHTML = '<span class="warn">语序修正中…</span>';
+    try {
+      const r = await api("/api/llm/fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript_id: lastTranscriptId }),
+      });
+      $("result_fixed").value = r.fixed;
+      $("fixed_wrap").hidden = false;
+      $("progress").innerHTML = '<span class="ok">完成（含语序修正）</span>';
+    } catch (e) {
+      $("progress").innerHTML = '<span class="err">语序修正失败: ' + e.message + '</span>';
+    }
+  }
   if (!gotDone && !$("prog_wrap").hidden) transcribeFail("服务未返回结果");
 };
 
+function currentText() {
+  return (!$("fixed_wrap").hidden && $("result_fixed").value)
+    ? $("result_fixed").value : $("result").value;
+}
+
 $("copy").onclick = () => {
-  navigator.clipboard.writeText($("result").value).then(() => {
+  navigator.clipboard.writeText(currentText()).then(() => {
     $("progress").innerHTML = '<span class="ok">已复制</span>';
   });
 };
 
 $("download").onclick = () => {
-  if (!$("result").value) return;
+  const text = currentText();
+  if (!text) return;
   const ext = currentFormat === "srt" ? "srt" : currentFormat === "json" ? "json" : "txt";
-  const blob = new Blob([$("result").value], { type: "text/plain;charset=utf-8" });
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "transcript." + ext;
@@ -479,12 +591,84 @@ async function loadVideos() {
   });
 }
 
+async function loadMarketSources() {
+  const data = await api("/api/videos");
+  const videos = (data.videos || []).filter(v => v.transcript);
+  const list = $("market_sources");
+  if (!videos.length) {
+    list.innerHTML = '<div class="empty">暂无已转写的视频文案，请先在转写工具中处理视频</div>';
+    return;
+  }
+  list.innerHTML = videos.map(v => {
+    const t = v.transcript;
+    return `<label class="mkt-item">
+      <input type="checkbox" class="mkt-check" value="${t.id}">
+      <span class="history-info">
+        <span class="history-title">${esc(v.title || v.id)}</span>
+        <span class="history-sub">${esc(v.author + " · " + t.model + " · " + t.result.slice(0, 80))}…</span>
+      </span>
+    </label>`;
+  }).join("");
+}
+
+async function loadAnalyses() {
+  const data = await api("/api/market/analyses");
+  const rows = data.analyses || [];
+  const list = $("market_history");
+  if (!rows.length) { list.innerHTML = '<div class="empty">暂无历史分析</div>'; return; }
+  list.innerHTML = rows.map(a => `<div class="history-item">
+    <div class="history-info">
+      <div class="history-title">${esc(a.created_at)}</div>
+      <div class="history-sub">${esc(a.result.slice(0, 80))}…</div>
+    </div>
+    <button class="btn btn-ghost btn-sm" data-aid="${a.id}">查看</button>
+  </div>`).join("");
+  list.querySelectorAll("[data-aid]").forEach(btn => {
+    btn.onclick = () => {
+      const a = rows.find(x => x.id === +btn.dataset.aid);
+      $("market_result").value = a.result;
+      $("market_result_wrap").hidden = false;
+    };
+  });
+}
+
+$("market_run").onclick = async () => {
+  const ids = [...document.querySelectorAll(".mkt-check:checked")]
+    .map(c => +c.value);
+  if (!ids.length) {
+    $("mkt_status").innerHTML = '<span class="err">请先勾选至少一条视频文案</span>';
+    return;
+  }
+  const btn = $("market_run");
+  btn.disabled = true;
+  $("mkt_prog_wrap").hidden = false;
+  $("mkt_status").innerHTML = '<span class="warn">抓取行情并分析中…</span>';
+  try {
+    const r = await api("/api/market/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript_ids: ids }),
+    });
+    $("market_result").value = r.result;
+    $("market_result_wrap").hidden = false;
+    $("mkt_status").innerHTML = '<span class="ok">分析完成</span>';
+    loadAnalyses();
+  } catch (e) {
+    $("mkt_status").innerHTML = '<span class="err">' + e.message + '</span>';
+  } finally {
+    btn.disabled = false;
+    $("mkt_prog_wrap").hidden = true;
+  }
+};
+
 function viewTranscript(v) {
   const t = v.transcript;
   if (!t) { $("progress").innerHTML = '<span class="warn">该视频暂无转写记录</span>'; return; }
   currentResult = t.result;
   currentFormat = t.format;
   $("result").value = t.result;
+  $("result_fixed").value = t.fixed || "";
+  $("fixed_wrap").hidden = !t.fixed;
   $("result_meta").textContent =
     `标题: ${v.title} | 作者: ${v.author} | 时长: ${v.duration}秒 | 模式: ${t.mode === "local" ? "本地" : "远程"} | 模型: ${t.model}`;
   $("url").value = v.url || "";
@@ -507,6 +691,8 @@ $("pv_modal").onclick = e => { if (e.target === $("pv_modal")) hidePv(); };
 loadConfig();
 refreshModelStatus();
 loadVideos();
+loadMarketSources();
+loadAnalyses();
 </script>
 </body>
 </html>
