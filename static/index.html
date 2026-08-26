@@ -49,6 +49,12 @@
   .modal h3 { font-size:15px; margin-bottom:12px; }
   .modal-x { position:absolute; top:12px; right:16px; cursor:pointer; color:var(--muted); font-size:18px; line-height:1; background:none; border:none; padding:2px 6px; }
   .modal-x:hover { color:var(--text); }
+  .history-item { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; flex-wrap:wrap; }
+  .history-item:last-child { border-bottom:none; }
+  .history-info { flex:1; min-width:200px; }
+  .history-title { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .history-sub { color:var(--muted); font-size:12px; margin-top:2px; }
+  .empty { color:var(--muted); font-size:13px; }
 </style>
 </head>
 <body>
@@ -89,37 +95,9 @@
         </div>
       </div>
     </div>
+    <button class="btn btn-ghost btn-sm" id="open_prov" style="margin-top:14px;">免费 Whisper API 推荐</button>
     <button class="btn btn-primary btn-block" id="save_cfg">保存配置</button>
     <div class="status" id="cfg_status"></div>
-  </div>
-
-  <!-- Whisper API 推荐 -->
-  <div class="card">
-    <h2>免费 Whisper API 推荐 <span class="tag">点「填入」自动配置</span></h2>
-    <div class="prov" data-base="https://api.groq.com/openai/v1" data-model="whisper-large-v3-turbo">
-      <div class="prov-head"><b>Groq</b> <span class="tag free">免费 · 无需绑卡</span></div>
-      <div class="prov-detail">接口: https://api.groq.com/openai/v1 · 模型: whisper-large-v3-turbo（或 whisper-large-v3）</div>
-      <div class="prov-note">免费额度: 每天 2000 次语音转写，速度快（约 200 倍实时）。到 console.groq.com/keys 注册拿 Key。</div>
-      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
-    </div>
-    <div class="prov" data-base="https://api.siliconflow.cn/v1" data-model="FunAudioLLM/SenseVoiceSmall">
-      <div class="prov-head"><b>硅基流动 SiliconFlow</b> <span class="tag free">免费模型 · 注册送 14 元</span></div>
-      <div class="prov-detail">接口: https://api.siliconflow.cn/v1 · 模型: FunAudioLLM/SenseVoiceSmall（免费 ASR）</div>
-      <div class="prov-note">国内直连，注册即送 14 元余额；另有付费 Whisper 模型可选，模型名在模型广场查看。</div>
-      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
-    </div>
-    <div class="prov" data-base="https://api.deepinfra.com/v1/openai" data-model="openai/whisper-large-v3">
-      <div class="prov-head"><b>DeepInfra</b> <span class="tag">低价备选</span></div>
-      <div class="prov-detail">接口: https://api.deepinfra.com/v1/openai · 模型: openai/whisper-large-v3</div>
-      <div class="prov-note">约 $0.00045/分钟，几乎全网最低价；无免费额度，适合低频使用。</div>
-      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
-    </div>
-    <div class="prov" data-base="https://api.openai.com/v1" data-model="whisper-1">
-      <div class="prov-head"><b>OpenAI 官方</b> <span class="tag">付费基准</span></div>
-      <div class="prov-detail">接口: https://api.openai.com/v1 · 模型: whisper-1</div>
-      <div class="prov-note">$0.006/分钟（约 $0.36/小时），无免费额度，作为准确度基准参考。</div>
-      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
-    </div>
   </div>
 
   <!-- 转写 -->
@@ -154,6 +132,12 @@
       <button class="btn btn-ghost" id="download">下载为文件</button>
     </div>
   </div>
+
+  <!-- 历史记录 -->
+  <div class="card">
+    <h2>历史记录 <span class="tag">本地缓存视频</span></h2>
+    <div id="history_list"></div>
+  </div>
 </div>
 
 <!-- 模型下载弹窗 -->
@@ -166,6 +150,47 @@
     <div class="actions">
       <button class="btn btn-ghost btn-sm" id="dl_close">最小化（后台下载）</button>
     </div>
+  </div>
+</div>
+
+<!-- 免费 Whisper API 推荐弹窗 -->
+<div class="modal-overlay" id="prov_modal" hidden>
+  <div class="modal" style="width:480px;">
+    <button class="modal-x" id="prov_x">×</button>
+    <h3>免费 Whisper API 推荐 <span class="tag">点「填入配置」自动填入</span></h3>
+    <div class="prov" data-base="https://api.groq.com/openai/v1" data-model="whisper-large-v3-turbo">
+      <div class="prov-head"><b>Groq</b> <span class="tag free">免费 · 无需绑卡</span></div>
+      <div class="prov-detail">接口: https://api.groq.com/openai/v1 · 模型: whisper-large-v3-turbo（或 whisper-large-v3）</div>
+      <div class="prov-note">免费额度: 每天 2000 次语音转写，速度快（约 200 倍实时）。到 console.groq.com/keys 注册拿 Key。</div>
+      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
+    </div>
+    <div class="prov" data-base="https://api.siliconflow.cn/v1" data-model="FunAudioLLM/SenseVoiceSmall">
+      <div class="prov-head"><b>硅基流动 SiliconFlow</b> <span class="tag free">免费模型 · 注册送 14 元</span></div>
+      <div class="prov-detail">接口: https://api.siliconflow.cn/v1 · 模型: FunAudioLLM/SenseVoiceSmall（免费 ASR）</div>
+      <div class="prov-note">国内直连，注册即送 14 元余额；另有付费 Whisper 模型可选，模型名在模型广场查看。</div>
+      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
+    </div>
+    <div class="prov" data-base="https://api.deepinfra.com/v1/openai" data-model="openai/whisper-large-v3">
+      <div class="prov-head"><b>DeepInfra</b> <span class="tag">低价备选</span></div>
+      <div class="prov-detail">接口: https://api.deepinfra.com/v1/openai · 模型: openai/whisper-large-v3</div>
+      <div class="prov-note">约 $0.00045/分钟，几乎全网最低价；无免费额度，适合低频使用。</div>
+      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
+    </div>
+    <div class="prov" data-base="https://api.openai.com/v1" data-model="whisper-1">
+      <div class="prov-head"><b>OpenAI 官方</b> <span class="tag">付费基准</span></div>
+      <div class="prov-detail">接口: https://api.openai.com/v1 · 模型: whisper-1</div>
+      <div class="prov-note">$0.006/分钟（约 $0.36/小时），无免费额度，作为准确度基准参考。</div>
+      <button class="btn btn-ghost btn-sm prov-fill">填入配置</button>
+    </div>
+  </div>
+</div>
+
+<!-- 视频预览弹窗 -->
+<div class="modal-overlay" id="pv_modal" hidden>
+  <div class="modal" style="width:520px; max-width:92%;">
+    <button class="modal-x" id="pv_x">×</button>
+    <h3 id="pv_title">视频预览</h3>
+    <video id="pv_video" controls style="width:100%; border-radius:8px; background:#000;"></video>
   </div>
 </div>
 
@@ -225,12 +250,18 @@ $("save_cfg").onclick = async () => {
   setTimeout(() => $("cfg_status").innerHTML = "", 3000);
 };
 
+$("open_prov").onclick = () => { $("prov_modal").hidden = false; };
+function hideProvModal() { $("prov_modal").hidden = true; }
+$("prov_x").onclick = hideProvModal;
+$("prov_modal").onclick = e => { if (e.target === $("prov_modal")) hideProvModal(); };
+
 document.querySelectorAll(".prov-fill").forEach(btn => {
   btn.onclick = () => {
     const p = btn.closest(".prov");
     $("base_url").value = p.dataset.base;
     $("model").value = p.dataset.model;
     $("cfg_status").innerHTML = '<span class="warn">已填入接口地址和模型，粘贴 API Key 后点保存</span>';
+    hideProvModal();
   };
 });
 
@@ -351,6 +382,7 @@ function handleTranscribeEvent(evt, data) {
     currentResult = data.result;
     currentFormat = data.format;
     $("result").value = data.result;
+    loadVideos();
   } else if (evt === "error") {
     transcribeFail(data.message || "未知错误");
   }
@@ -414,8 +446,67 @@ $("download").onclick = () => {
   a.click();
 };
 
+const esc = s => String(s).replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function loadVideos() {
+  const data = await api("/api/videos");
+  const videos = data.videos || [];
+  const list = $("history_list");
+  if (!videos.length) {
+    list.innerHTML = '<div class="empty">暂无历史记录，转写过的视频会出现在这里</div>';
+    return;
+  }
+  list.innerHTML = videos.map(v => {
+    const t = v.transcript;
+    const sub = `${v.author} · ${v.duration}秒 · ${v.created_at}`
+      + (t ? ` · ${t.mode === "local" ? "本地" : "远程"}/${t.model}` : "");
+    return `<div class="history-item">
+      <div class="history-info">
+        <div class="history-title">${esc(v.title || v.id)}</div>
+        <div class="history-sub">${esc(sub)}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-view="${v.id}">查看文字</button>
+      <button class="btn btn-ghost btn-sm" data-preview="${v.id}">预览</button>
+      <a class="btn btn-ghost btn-sm" href="/api/videos/${v.id}/video?download=1" download>下载</a>
+    </div>`;
+  }).join("");
+  list.querySelectorAll("[data-view]").forEach(btn => {
+    btn.onclick = () => viewTranscript(videos.find(v => v.id === btn.dataset.view));
+  });
+  list.querySelectorAll("[data-preview]").forEach(btn => {
+    btn.onclick = () => showPreview(videos.find(v => v.id === btn.dataset.preview));
+  });
+}
+
+function viewTranscript(v) {
+  const t = v.transcript;
+  if (!t) { $("progress").innerHTML = '<span class="warn">该视频暂无转写记录</span>'; return; }
+  currentResult = t.result;
+  currentFormat = t.format;
+  $("result").value = t.result;
+  $("result_meta").textContent =
+    `标题: ${v.title} | 作者: ${v.author} | 时长: ${v.duration}秒 | 模式: ${t.mode === "local" ? "本地" : "远程"} | 模型: ${t.model}`;
+  $("url").value = v.url || "";
+  $("progress").innerHTML = '<span class="ok">已加载历史记录</span>';
+}
+
+function showPreview(v) {
+  $("pv_title").textContent = v.title || v.id;
+  $("pv_video").src = "/api/videos/" + v.id + "/video";
+  $("pv_modal").hidden = false;
+  $("pv_video").play().catch(() => {});
+}
+function hidePv() {
+  $("pv_modal").hidden = true;
+  $("pv_video").pause();
+}
+$("pv_x").onclick = hidePv;
+$("pv_modal").onclick = e => { if (e.target === $("pv_modal")) hidePv(); };
+
 loadConfig();
 refreshModelStatus();
+loadVideos();
 </script>
 </body>
 </html>

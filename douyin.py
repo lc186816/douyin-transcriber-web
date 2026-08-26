@@ -9,9 +9,7 @@
 
 import os
 import re
-import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 from typing import Optional
@@ -176,7 +174,6 @@ def download_audio(video_id: str, detail: dict, out_dir: str,
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise DouyinError(f"音频提取失败: {result.stderr[-500:]}")
-    os.remove(video_path)
     return audio_path
 
 
@@ -192,22 +189,3 @@ def convert_to_wav(input_path: str, out_dir: str) -> str:
     return wav_path
 
 
-def extract_audio_from_link(url: str, progress_cb=None) -> tuple[str, dict, str]:
-    """完整链路: 解析链接 -> 下载 -> 提取音频。
-    返回 (音频路径, 元信息, 临时目录)。
-    """
-    video_id = resolve_video_id(url)
-    detail = fetch_detail(video_id)
-    meta = {
-        "id": video_id,
-        "title": detail.get("desc", "").strip(),
-        "duration": detail.get("duration", 0) // 1000,
-        "author": (detail.get("author") or {}).get("nickname", ""),
-    }
-    tmpdir = tempfile.mkdtemp(prefix="dyt_")
-    try:
-        audio_path = download_audio(video_id, detail, tmpdir, progress_cb)
-    except Exception:
-        shutil.rmtree(tmpdir, ignore_errors=True)
-        raise
-    return audio_path, meta, tmpdir

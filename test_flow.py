@@ -51,4 +51,20 @@ check("no video id on garbage", True)
 assert not transcribe.model_exists("definitely-not-a-model")
 check("model_exists false for unknown", True)
 
+# 存储（内存 sqlite）
+import storage as storage_mod
+
+storage_mod.init_db("sqlite:///:memory:")
+storage_mod.upsert_video("123", "https://v.douyin.com/x/", "标题", "作者", 60)
+storage_mod.add_transcript("123", "local", "small", "text", "hello world")
+videos = storage_mod.list_videos()
+check("storage roundtrip",
+      len(videos) == 1 and videos[0]["id"] == "123"
+      and videos[0]["title"] == "标题" and videos[0]["duration"] == 60
+      and videos[0]["transcript"]["result"] == "hello world")
+storage_mod.upsert_video("123", "https://v.douyin.com/x/", "新标题", "作者", 60)
+videos = storage_mod.list_videos()
+check("storage upsert updates",
+      len(videos) == 1 and videos[0]["title"] == "新标题")
+
 print("all checks passed")

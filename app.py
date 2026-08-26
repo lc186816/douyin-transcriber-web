@@ -10,23 +10,27 @@
 
 import json
 import queue
-import shutil
+import re
 import threading
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import douyin
+import storage
 import transcribe
 
 app = FastAPI(title="Douyin Transcriber")
 STATIC_DIR = Path(__file__).parent / "static"
 DATA_DIR = Path(__file__).parent / "data"
 CONFIG_FILE = DATA_DIR / "config.json"
+CACHE_DIR = DATA_DIR / "videos"
+
+storage.init_db()
 
 DEFAULT_CONFIG = {
     "api_key": "",
@@ -103,6 +107,39 @@ def update_config(update: ConfigUpdate):
     return {"ok": True}
 
 
+def _get_or_download(video_id: str, url: str, emit) -> tuple[Path, dict]:
+    """返回 (audio_path, meta)。命中本地缓存则跳过下载。"""
+    cache_dir = CACHE_DIR / video_id
+    audio_path = cache_dir / "audio.mp3"
+    video = storage.get_video(video_id)
+    if audio_path.exists() and video:
+        emit("stage", {"message": "命中本地缓存，跳过视频下载…"})
+        return audio_path, {"id": video.id, "title": video.title,
+                            "duration": video.duration, "author": video.author}
+
+    emit("stage", {"message": "解析链接、获取视频信息…"})
+    detail = douyin.fetch_detail(video_id)
+    meta = {
+        "id": video_id,
+        "title": detail.get("desc", "").strip(),
+        "duration": detail.get("duration", 0) // 1000,
+        "author": (detail.get("author") or {}).get("nickname", ""),
+    }
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        douyin.download_audio(
+            video_id, detail, str(cache_dir),
+            progress_cb=lambda done, total: emit(
+                "progress", {"done": done, "total": total}))
+    except Exception:
+        (cache_dir / "video.mp4").unlink(missing_ok=True)
+        raise
+    emit("stage", {"message": "视频下载完成，提取音频…"})
+    storage.upsert_video(video_id, url, meta["title"],
+                         meta["author"], meta["duration"])
+    return audio_path, meta
+
+
 def _run_transcribe(req: TranscribeRequest, emit) -> None:
     """执行完整转写链路，通过 emit(event, payload) 汇报进度与结果。
 
@@ -115,40 +152,41 @@ def _run_transcribe(req: TranscribeRequest, emit) -> None:
     cfg = load_config()
     output_format = req.output_format or cfg.get("format", "text")
 
-    # 1. 下载音频（带进度回调）
-    emit("stage", {"message": "解析链接、获取视频信息…"})
     try:
-        audio_path, meta, tmpdir = douyin.extract_audio_from_link(
-            req.url.strip(),
-            progress_cb=lambda done, total: emit("progress", {"done": done, "total": total}))
+        video_id = douyin.resolve_video_id(req.url.strip())
+    except douyin.DouyinError as e:
+        emit("error", {"message": f"链接解析失败: {e}"})
+        return
+
+    try:
+        audio_path, meta = _get_or_download(video_id, req.url.strip(), emit)
     except douyin.DouyinError as e:
         emit("error", {"message": f"下载失败: {e}"})
         return
     except Exception as e:
         emit("error", {"message": f"下载失败: {e}"})
         return
-    emit("stage", {"message": "视频下载完成，提取音频…"})
 
-    # 2. 转写
+    # 转写
     try:
         if req.mode == "remote":
             model = req.model or cfg.get("model") or "whisper-1"
             emit("stage", {"message": f"调用远程 API 转写中（{model}）…"})
             result = transcribe.transcribe_remote(
-                audio_path, cfg.get("api_key", ""), cfg.get("base_url", ""),
+                str(audio_path), cfg.get("api_key", ""), cfg.get("base_url", ""),
                 model, output_format)
         else:
             model = req.model or cfg.get("local_model") or "small"
             emit("stage", {"message": f"本地模型转写中（{model}）…"})
-            result = transcribe.transcribe_local(audio_path, model, output_format)
+            result = transcribe.transcribe_local(str(audio_path), model, output_format)
     except douyin.DouyinError as e:
         emit("error", {"message": f"转写失败: {e}"})
         return
     except Exception as e:
         emit("error", {"message": f"转写失败: {e}"})
         return
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    storage.add_transcript(video_id, req.mode, model, output_format, result)
 
     emit("done", {
         "ok": True,
@@ -157,6 +195,9 @@ def _run_transcribe(req: TranscribeRequest, emit) -> None:
         "mode": req.mode,
         "model": model,
         "format": output_format,
+        "video_id": video_id,
+        "video_url": f"/api/videos/{video_id}/video",
+        "download_url": f"/api/videos/{video_id}/video?download=1",
     })
 
 
@@ -198,6 +239,24 @@ def transcribe_stream(req: TranscribeRequest):
             yield f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_source(), media_type="text/event-stream")
+
+
+@app.get("/api/videos")
+def list_videos():
+    return {"videos": storage.list_videos()}
+
+
+@app.get("/api/videos/{video_id}/video")
+def get_video_file(video_id: str, download: bool = False):
+    video = storage.get_video(video_id)
+    path = CACHE_DIR / video_id / "video.mp4"
+    if not video or not path.exists():
+        raise HTTPException(status_code=404, detail="视频不存在")
+    if download:
+        title = re.sub(r'[\\/:*?"<>|]', "_", video.title or video_id)
+        return FileResponse(path, media_type="video/mp4",
+                            filename=f"{title}.mp4")
+    return FileResponse(path, media_type="video/mp4")
 
 
 @app.get("/api/model/status")
