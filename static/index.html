@@ -126,6 +126,7 @@
       <h2>市场分析 <span class="tag">A股明日情绪预测</span></h2>
       <div class="sub">勾选要作为情绪素材的视频文案，点击生成预测（自动抓取今日行情 + 文本大模型分析）</div>
       <div id="market_sources"></div>
+      <label class="check"><input type="checkbox" id="use_market" checked> 抓取今日行情数据（不勾选则仅用文案分析）</label>
       <button class="btn btn-primary btn-block" id="market_run">获取行情并生成预测</button>
       <div class="prog-bar" id="mkt_prog_wrap" hidden><div class="prog-fill indet" id="mkt_prog_fill"></div></div>
       <div class="status" id="mkt_status"></div>
@@ -642,12 +643,12 @@ $("market_run").onclick = async () => {
   const btn = $("market_run");
   btn.disabled = true;
   $("mkt_prog_wrap").hidden = false;
-  $("mkt_status").innerHTML = '<span class="warn">抓取行情并分析中…</span>';
+  $("mkt_status").innerHTML = '<span class="warn">分析中…</span>';
   try {
     const r = await api("/api/market/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transcript_ids: ids }),
+      body: JSON.stringify({ transcript_ids: ids, use_market: $("use_market").checked }),
     });
     $("market_result").value = r.result;
     $("market_result_wrap").hidden = false;

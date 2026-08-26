@@ -263,6 +263,7 @@ class FixRequest(BaseModel):
 
 class MarketAnalyzeRequest(BaseModel):
     transcript_ids: list[int] = []
+    use_market: bool = True
 
 
 @app.post("/api/llm/fix")
@@ -284,10 +285,13 @@ def market_analyze(req: MarketAnalyzeRequest):
     if not req.transcript_ids:
         raise HTTPException(status_code=400, detail="请先勾选视频文案")
     cfg = load_config()
-    try:
-        mkt = market.fetch_market_data()
-    except douyin.DouyinError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    market_json = ""
+    if req.use_market:
+        try:
+            mkt = market.fetch_market_data()
+        except douyin.DouyinError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        market_json = json.dumps(mkt, ensure_ascii=False, indent=2)
     texts = []
     for tid in req.transcript_ids:
         t = storage.get_transcript(tid)
@@ -295,9 +299,9 @@ def market_analyze(req: MarketAnalyzeRequest):
             texts.append(t.result)
     if not texts:
         raise HTTPException(status_code=400, detail="勾选的文案均无转写内容")
-    market_json = json.dumps(mkt, ensure_ascii=False, indent=2)
     try:
-        result = llm.analyze_market(cfg, market_json, "\n\n".join(texts))
+        result = llm.analyze_market(cfg, "\n\n".join(texts),
+                                    market_json or None)
     except douyin.DouyinError as e:
         raise HTTPException(status_code=400, detail=str(e))
     storage.add_analysis(market_json,
