@@ -66,6 +66,7 @@
   .mkt-item .history-info { display:flex; flex-direction:column; flex:1; min-width:0; }
   #result_fixed { margin-top:8px; width:100%; min-height:140px; white-space:pre-wrap; font-size:13px; line-height:1.8; }
   #market_result { margin-top:8px; width:100%; min-height:240px; white-space:pre-wrap; font-size:13px; line-height:1.8; }
+  #view_body { margin-top:10px; width:100%; min-height:380px; white-space:pre-wrap; font-size:13px; line-height:1.8; }
 </style>
 </head>
 <body>
@@ -127,6 +128,7 @@
       <div class="sub">勾选要作为情绪素材的视频文案，点击生成预测（自动抓取今日行情 + 文本大模型分析）</div>
       <div id="market_sources"></div>
       <label class="check"><input type="checkbox" id="use_market" checked> 抓取今日行情数据（不勾选则仅用文案分析）</label>
+      <label class="check"><input type="checkbox" id="priority_transcript"> 以视频文案为优先级分析（文案为主，行情数据仅作参考）</label>
       <button class="btn btn-primary btn-block" id="market_run">获取行情并生成预测</button>
       <div class="prog-bar" id="mkt_prog_wrap" hidden><div class="prog-fill indet" id="mkt_prog_fill"></div></div>
       <div class="status" id="mkt_status"></div>
@@ -255,6 +257,15 @@
     <button class="modal-x" id="pv_x">×</button>
     <h3 id="pv_title">视频预览</h3>
     <video id="pv_video" controls style="width:100%; border-radius:8px; background:#000;"></video>
+  </div>
+</div>
+
+<!-- 查看详情弹窗 -->
+<div class="modal-overlay" id="view_modal" hidden>
+  <div class="modal" style="width:640px; max-width:94%;">
+    <button class="modal-x" id="view_x">×</button>
+    <h3 id="view_title">查看</h3>
+    <textarea id="view_body" readonly></textarea>
   </div>
 </div>
 
@@ -627,8 +638,7 @@ async function loadAnalyses() {
   list.querySelectorAll("[data-aid]").forEach(btn => {
     btn.onclick = () => {
       const a = rows.find(x => x.id === +btn.dataset.aid);
-      $("market_result").value = a.result;
-      $("market_result_wrap").hidden = false;
+      showView("市场分析 · " + a.created_at, a.result);
     };
   });
 }
@@ -644,15 +654,23 @@ $("market_run").onclick = async () => {
   btn.disabled = true;
   $("mkt_prog_wrap").hidden = false;
   $("mkt_status").innerHTML = '<span class="warn">分析中…</span>';
+  const priority = $("priority_transcript").checked;
+  if (priority) $("use_market").checked = true;   // 文案优先模式必须有行情作参考
   try {
     const r = await api("/api/market/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transcript_ids: ids, use_market: $("use_market").checked }),
+      body: JSON.stringify({
+        transcript_ids: ids,
+        use_market: $("use_market").checked,
+        priority_transcript: priority,
+      }),
     });
     $("market_result").value = r.result;
     $("market_result_wrap").hidden = false;
-    $("mkt_status").innerHTML = '<span class="ok">分析完成</span>';
+    $("mkt_status").innerHTML = r.cached
+      ? '<span class="warn">已存在相同条件的分析，直接返回历史结果</span>'
+      : '<span class="ok">分析完成</span>';
     loadAnalyses();
   } catch (e) {
     $("mkt_status").innerHTML = '<span class="err">' + e.message + '</span>';
@@ -665,16 +683,19 @@ $("market_run").onclick = async () => {
 function viewTranscript(v) {
   const t = v.transcript;
   if (!t) { $("progress").innerHTML = '<span class="warn">该视频暂无转写记录</span>'; return; }
-  currentResult = t.result;
-  currentFormat = t.format;
-  $("result").value = t.result;
-  $("result_fixed").value = t.fixed || "";
-  $("fixed_wrap").hidden = !t.fixed;
-  $("result_meta").textContent =
-    `标题: ${v.title} | 作者: ${v.author} | 时长: ${v.duration}秒 | 模式: ${t.mode === "local" ? "本地" : "远程"} | 模型: ${t.model}`;
-  $("url").value = v.url || "";
-  $("progress").innerHTML = '<span class="ok">已加载历史记录</span>';
+  let body = t.result;
+  if (t.fixed) body = "【修正前】\n" + t.result + "\n\n【修正后】\n" + t.fixed;
+  showView(v.title || v.id, body);
 }
+
+function showView(title, text) {
+  $("view_title").textContent = title;
+  $("view_body").value = text;
+  $("view_modal").hidden = false;
+}
+function hideView() { $("view_modal").hidden = true; }
+$("view_x").onclick = hideView;
+$("view_modal").onclick = e => { if (e.target === $("view_modal")) hideView(); };
 
 function showPreview(v) {
   $("pv_title").textContent = v.title || v.id;

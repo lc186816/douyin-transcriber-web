@@ -34,6 +34,21 @@ MARKET_PROMPT_NO_MARKET = (
     "本次分析未提供行情数据，请基于文案内容理性推断，不要编造具体数字，不确定处明确说明。"
 )
 
+MARKET_PROMPT_PRIORITY = (
+    "你是资深A股策略分析师。请以视频文案为主要分析依据，预测A股市场明日行情。"
+    "行情数据仅作参考，不作为主要判断依据。\n\n"
+    "一、视频文案（主要分析依据，反映市场情绪、热点与主力观点）：\n{transcripts}\n\n"
+    "二、今日大盘与板块行情数据（仅供参考）：\n{market_data}\n\n"
+    "请输出以下四个部分，每部分用标题开头：\n"
+    "【大盘预测】以视频文案中关于大盘的观点为主；若文案未涉及大盘，"
+    "该部分开头标注“视频文案无大盘预测，仅用行情数据预测”，再结合行情数据给出判断\n"
+    "【板块预测】以视频文案提及的方向为主，除行业/概念板块外，"
+    "请包含大方向判断（如中证1000、中证2000、上证50、沪深300 等宽基指数的强弱方向）\n"
+    "【板块机会】以视频文案提及的机会为主，给出具体板块机会及逻辑，同样可包含宽基指数方向\n"
+    "【涨跌情绪】以视频文案反映的市场情绪为主（乐观/谨慎/悲观）\n\n"
+    "基于数据理性分析，不要编造具体数字，不确定处明确说明。"
+)
+
 
 def chat(cfg: dict, messages: list, temperature: float = 0.7) -> str:
     """调用 OpenAI 兼容 /chat/completions，返回回复文本。"""
@@ -66,8 +81,13 @@ def fix_text(cfg: dict, text: str) -> str:
 
 
 def analyze_market(cfg: dict, transcripts: str,
-                   market_data: str | None = None) -> str:
-    if market_data:
+                   market_data: str | None = None,
+                   priority: bool = False) -> str:
+    if priority:
+        content = MARKET_PROMPT_PRIORITY.format(
+            transcripts=transcripts,
+            market_data=market_data or "（未提供）")
+    elif market_data:
         content = MARKET_PROMPT.format(market_data=market_data,
                                        transcripts=transcripts)
     else:

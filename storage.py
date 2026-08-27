@@ -47,6 +47,7 @@ class Analysis(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     market_data = Column(Text, default="")     # 行情快照 JSON
     transcript_ids = Column(String, default="")
+    mode = Column(String, default="")          # standard | priority（去重键）
     result = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.now)
 
@@ -69,12 +70,15 @@ def init_db(db_path=DB_FILE) -> None:
 
 
 def _migrate() -> None:
-    """已有库补列：transcripts.fixed（create_all 不会给旧表加列）。"""
+    """已有库补列（create_all 不会给旧表加列）。"""
     with _session() as s:
-        cols = [r[1] for r in s.execute(text("PRAGMA table_info(transcripts)"))]
-        if "fixed" not in cols:
+        tcols = [r[1] for r in s.execute(text("PRAGMA table_info(transcripts)"))]
+        if "fixed" not in tcols:
             s.execute(text("ALTER TABLE transcripts ADD COLUMN fixed TEXT"))
-            s.commit()
+        acols = [r[1] for r in s.execute(text("PRAGMA table_info(analyses)"))]
+        if "mode" not in acols:
+            s.execute(text("ALTER TABLE analyses ADD COLUMN mode TEXT"))
+        s.commit()
 
 
 def _session() -> Session:
@@ -127,11 +131,25 @@ def set_fixed(transcript_id: int, fixed_text: str) -> None:
             s.commit()
 
 
-def add_analysis(market_data: str, transcript_ids: str, result: str) -> None:
+def add_analysis(market_data: str, transcript_ids: str, mode: str,
+                 result: str) -> None:
     with _session() as s:
         s.add(Analysis(market_data=market_data, transcript_ids=transcript_ids,
-                       result=result))
+                       mode=mode, result=result))
         s.commit()
+
+
+def get_analysis_by_key(transcript_ids: str, mode: str,
+                        has_market: bool) -> Optional[Analysis]:
+    """按去重键查最近一次分析：transcript_ids + mode + 是否含行情。"""
+    cond = (Analysis.market_data != "" if has_market
+            else Analysis.market_data == "")
+    with _session() as s:
+        return s.scalar(
+            select(Analysis)
+            .where(Analysis.transcript_ids == transcript_ids,
+                   Analysis.mode == mode, cond)
+            .order_by(Analysis.id.desc()))
 
 
 def list_analyses() -> list:

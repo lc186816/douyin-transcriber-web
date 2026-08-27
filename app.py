@@ -264,6 +264,7 @@ class FixRequest(BaseModel):
 class MarketAnalyzeRequest(BaseModel):
     transcript_ids: list[int] = []
     use_market: bool = True
+    priority_transcript: bool = False
 
 
 @app.post("/api/llm/fix")
@@ -285,28 +286,40 @@ def market_analyze(req: MarketAnalyzeRequest):
     if not req.transcript_ids:
         raise HTTPException(status_code=400, detail="请先勾选视频文案")
     cfg = load_config()
+    priority = req.priority_transcript
+    has_market = req.use_market or priority   # 文案优先模式必须有行情作参考
+    key = ",".join(str(i) for i in sorted(req.transcript_ids))
+    mode = "priority" if priority else "standard"
+
+    # 去重：相同勾选 + 相同模式 + 相同行情选项，直接返回最近一次结果
+    existing = storage.get_analysis_by_key(key, mode, has_market)
+    if existing is not None:
+        return {"result": existing.result, "market_data": existing.market_data,
+                "cached": True}
+
     market_json = ""
-    if req.use_market:
+    if has_market:
         try:
             mkt = market.fetch_market_data()
         except douyin.DouyinError as e:
             raise HTTPException(status_code=502, detail=str(e))
         market_json = json.dumps(mkt, ensure_ascii=False, indent=2)
+
     texts = []
     for tid in req.transcript_ids:
         t = storage.get_transcript(tid)
         if t and t.result:
-            texts.append(t.result)
+            texts.append(t.fixed or t.result)   # 优先用语序修正后的文案
     if not texts:
         raise HTTPException(status_code=400, detail="勾选的文案均无转写内容")
+
     try:
         result = llm.analyze_market(cfg, "\n\n".join(texts),
-                                    market_json or None)
+                                    market_json or None, priority=priority)
     except douyin.DouyinError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    storage.add_analysis(market_json,
-                         ",".join(str(i) for i in req.transcript_ids), result)
-    return {"result": result, "market_data": market_json}
+    storage.add_analysis(market_json, key, mode, result)
+    return {"result": result, "market_data": market_json, "cached": False}
 
 
 @app.get("/api/market/analyses")

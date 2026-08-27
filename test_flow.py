@@ -73,9 +73,16 @@ t = storage_mod.get_transcript(1)
 check("storage fixed roundtrip", t is not None and t.fixed == "修正后的文字")
 videos = storage_mod.list_videos()
 check("storage list includes fixed", videos[0]["transcript"]["fixed"] == "修正后的文字")
-storage_mod.add_analysis('{"a": 1}', "1,2", "预测结果")
+storage_mod.add_analysis('{"a": 1}', "1,2", "standard", "预测结果A")
+storage_mod.add_analysis('', "1,2", "priority", "预测结果B")
 analyses = storage_mod.list_analyses()
 check("storage analyses roundtrip",
-      len(analyses) == 1 and analyses[0]["result"] == "预测结果")
+      len(analyses) == 2 and analyses[0]["result"] == "预测结果B")
+match = storage_mod.get_analysis_by_key("1,2", "priority", False)
+check("storage dedup match", match is not None and match.result == "预测结果B")
+check("storage dedup mode mismatch",
+      storage_mod.get_analysis_by_key("1,2", "standard", False) is None)
+check("storage dedup market mismatch",
+      storage_mod.get_analysis_by_key("1,2", "priority", True) is None)
 
 print("all checks passed")
